@@ -142,13 +142,15 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-20 (third checkpoint — MVP demo flow verified live in
-browser)._
+_Last updated: 2026-08-20 (fourth checkpoint — MVP verified working via
+local fallback after Docker engine proved unresponsive on this host)._
 
 **The MVP is functionally complete and verified end-to-end in a real browser
-against a live backend.** The one remaining unverified piece is the Docker
-Compose stack itself, blocked by a host environment issue (see below) — the
-application code is not in question.
+against a live backend, and is running right now via the local
+Python/SQLite + npm dev fallback.** Docker Compose has not yet been proven
+end-to-end on this host due to Docker Desktop issues unrelated to the
+application code (see "Docker Compose status" below) — per explicit user
+direction, this was not chased further so as not to block a working MVP.
 
 - [x] Repo structure, git init, docs (CLAUDE.md, docs/ARCHITECTURE.md,
       docs/DATA_MODEL.md, docs/PENTERA_IMPORT.md, docs/MVP_SCOPE.md)
@@ -240,39 +242,67 @@ application code is not in question.
 - Browser console checked clean in a fresh tab (one stale HMR-only error
   from a live file edit did not reproduce after a hard reload / new tab).
 
-### Docker Compose status: blocked by host disk space, not the app
+### Docker Compose status: engine unavailable on this host, app runs fine via local fallback
 
-`docker compose up --build` was attempted this session. The image builds
-succeeded (backend + frontend both built cleanly), but creating the
-Postgres container failed with `input/output error` from the Docker daemon,
-and subsequent `docker` cleanup commands (`image rm`, `builder prune`) also
-failed the same way. Root cause: **the host machine's disk had only ~160MB
-free** (`df -h /` showed 99% used) — Docker's own internal metadata DBs
-could not be written. This is a host environment constraint, not a bug in
-`docker-compose.yml`, the `Dockerfile`s, or the app. Docker was left in a
-partially-built state (images built, containers not created) since further
-Docker operations were failing on I/O errors and it was not safe to keep
-retrying against a full disk.
+`docker compose up --build` was attempted twice this session:
 
-**Next session must free host disk space first** (empty Trash, clear Docker
-Desktop's data via its own UI, or otherwise recover space — do not assume
-`docker system prune` will work while the disk is full, it may itself fail)
-before attempting `docker compose up --build` again. The Postgres path is
-otherwise expected to work — the SQLAlchemy models avoid Postgres-only
-types, `DATABASE_URL` is the only thing that changes between SQLite and
-Postgres, and both backend and frontend Dockerfiles build successfully.
+1. **First attempt**: both images built successfully (backend + frontend),
+   but creating the Postgres container failed with `input/output error`.
+   Root cause: the host disk had only ~160MB free — Docker's own internal
+   metadata DBs couldn't be written.
+2. User freed disk space (1.7GB free afterward). Restarted Docker Desktop.
+   **Second attempt**: `docker compose version` works fine (CLI is present,
+   v2.39.1-desktop.1), but `docker version` / `docker info` hung
+   indefinitely with zero output — even the client-side portion, which
+   normally doesn't need the daemon — and had to be force-killed. This
+   points to the **Docker engine/daemon itself being unresponsive**, most
+   likely because the earlier full-disk incident left its internal VM/DB
+   state in a bad spot. This is a host Docker Desktop issue, not an
+   application or `docker-compose.yml`/`Dockerfile` problem — both images
+   build cleanly when the daemon is reachable enough to build them.
+
+**Per explicit user direction, further Docker debugging was stopped** (not
+worth burning time on a host installation issue) in favor of the documented
+local fallback — which is fully working right now:
+
+```bash
+# Backend
+cd backend && source venv/bin/activate
+export DATABASE_URL=sqlite:///./app.db
+uvicorn app.main:app --port 8000 &
+
+# Frontend
+cd frontend && npm run dev &
+
+# Sample data
+python3 scripts/load_sample_data.py http://localhost:8000
+```
+
+Verified live: dashboard at `total_findings=53`, `overall_risk_score=30.5`,
+`risk_reduction_pct=22.6` — matches every prior verification.
+
+**Next session, if Docker is wanted**: try `docker compose up --build`
+again — if it still hangs, Docker Desktop likely needs a manual
+troubleshoot/reset from its own UI (Settings → Troubleshoot → "Clean /
+Purge data" or similar), which is a destructive action outside what an
+agent should do autonomously. **This is not required to demo or use the
+MVP** — the local fallback is the fully-supported dev path and is what's
+actually running right now.
 
 ### Known gaps / not yet verified
 
-- **Docker Compose has not successfully brought up all three services** —
-  see above. This is the only remaining item before the MVP can be called
-  fully done per the original spec (which allows SQLite for dev but intends
-  Postgres via Docker Compose as the deployment target).
+- **Docker Compose has never successfully brought up all three services in
+  this environment** (disk-full, then daemon-unresponsive). The
+  `docker-compose.yml`/`Dockerfile`s are believed correct (images built
+  clean both times) but the full stack has literally never gone green here.
+  This is the only remaining item before the MVP can be called fully done
+  per the original spec's Docker requirement — it does not block using or
+  demoing the app today via the local fallback.
 - `backend/app.db` (SQLite dev DB), `backend/venv/`, and
   `frontend/node_modules/` are git-ignored and untracked, as intended —
   regenerate with the commands below.
-- A local `.env` (copied from `.env.example`) exists on disk for the Docker
-  test but is git-ignored, as intended — not committed.
+- A local `.env` (copied from `.env.example`) exists on disk from the
+  Docker attempts but is git-ignored, as intended — not committed.
 
 ## How to run the project right now
 
@@ -312,15 +342,20 @@ python3 scripts/load_sample_data.py http://localhost:8000
 
 ## Next recommended task (pick up here)
 
-**Free host disk space, then finish the Docker Compose smoke test.** That is
-the only remaining gap:
+**The MVP itself needs no further work to be demoable** — it's running
+right now via the local fallback (backend on :8000, frontend on :5173,
+sample data loaded). The only open item is proving Docker Compose end-to-end
+on a host where the Docker engine is actually responsive:
 
-1. Check `df -h /` — if available space is still under ~1-2GB, free space
-   first (empty Trash, use Docker Desktop's own "clean / purge data" UI,
-   remove unused large files). Do not assume Docker CLI cleanup commands
-   will succeed on a full disk — they failed with I/O errors this session.
-2. `cd /Users/tahaa/ad-sec-tracker && docker compose up --build` (a `.env`
-   already exists locally, copied from `.env.example`; it's git-ignored).
+1. Confirm Docker Desktop is healthy: `docker compose version` should
+   return instantly; `docker info` should also return within a few seconds
+   (not hang). If `docker info` hangs, Docker Desktop's engine is stuck —
+   that needs a manual restart or troubleshoot/reset from its own UI. Do
+   not spend more than a couple of minutes on this before falling back to
+   local dev again; it has already blocked two sessions.
+2. Once `docker info` is responsive: `cd /Users/tahaa/ad-sec-tracker &&
+   docker compose up --build` (a `.env` already exists locally, copied from
+   `.env.example`; it's git-ignored).
 3. Confirm all three containers (`db`, `backend`, `frontend`) come up
    healthy, the backend connects to Postgres (not SQLite) and runs its
    Alembic migration successfully, and the frontend loads at
@@ -332,6 +367,7 @@ the only remaining gap:
 5. Commit.
 
 Everything else — backend logic, all APIs, the full frontend, and the
-complete demo workflow — is built and has been verified live in a browser
-this session. This is genuinely the last checklist item, not a "re-verify
-everything" task.
+complete demo workflow — is built, tested, and has been verified live in a
+browser across multiple sessions. Docker Compose is the last checklist item,
+not a "re-verify everything" task, and is not required to use or demo the
+product.

@@ -39,5 +39,8 @@ sample-data/real/
 .vscode/
 *.swp
 
+# --- Local agent/harness state (not project config) ---
+.claude/
+
 # --- Docker ---
 docker-compose.override.yml
