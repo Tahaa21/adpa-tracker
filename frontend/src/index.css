@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: #0b1220;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500;
+  }
+  .select {
+    @apply rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500;
+  }
+}
+
+/* thin, unobtrusive scrollbars for the enterprise-tool feel */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #334155;
+  border-radius: 8px;
+}

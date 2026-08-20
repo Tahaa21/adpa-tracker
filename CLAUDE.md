@@ -142,16 +142,17 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-20 (mid-implementation checkpoint)._
+_Last updated: 2026-08-20 (second checkpoint — frontend scaffolded)._
 
-**Backend: fully working and tested. Frontend: not started yet (empty directory).**
+**Backend: fully working and tested. Frontend: scaffolded and builds clean,
+but NOT yet verified end-to-end against a live backend.**
 
 - [x] Repo structure, git init, docs (CLAUDE.md, docs/ARCHITECTURE.md,
       docs/DATA_MODEL.md, docs/PENTERA_IMPORT.md, docs/MVP_SCOPE.md)
-- [x] Docker Compose + env (`docker-compose.yml`, `.env.example`) — **not yet
-      run end-to-end**; only the local Python/SQLite path has been verified
-      so far. `docker compose up --build` should work but has not been tested
-      in this session.
+- [x] Docker Compose + env (`docker-compose.yml`, `.env.example`,
+      `backend/Dockerfile`, `frontend/Dockerfile`) — **not yet run
+      end-to-end**; only the local Python/SQLite path and local
+      `npm run build` have been verified so far.
 - [x] Backend skeleton (`backend/app/main.py`, `core/config.py`, `core/db.py`)
 - [x] Core DB schema (all 7 SQLAlchemy models) + Alembic migration
       (`backend/alembic/versions/31cd029594af_initial_schema.py`, generated
@@ -175,15 +176,37 @@ _Last updated: 2026-08-20 (mid-implementation checkpoint)._
       fingerprinting/dedup, risk scoring, repeated-assessment behavior
       (recurring/resolved/reopened), and the full API workflow (assign →
       remediate → block-direct-validate → validate → dashboard comparison).
-- [ ] **Frontend — NOT STARTED.** `frontend/` directory exists but is empty.
-      This is the next and most important remaining piece.
-- [ ] Assessment upload UI + import summary
-- [ ] Findings table + detail drawer/page
-- [ ] Dashboard UI (Recharts)
-- [ ] End-to-end verified against the real UI, README polished
-- [ ] Git: **not yet committed as of this checkpoint** — see below.
+- [x] Frontend shell: Vite + React + TypeScript + Tailwind CSS v4 (via
+      `@tailwindcss/vite`, not the old `tailwind.config.js`/postcss flow) +
+      Recharts + React Router. Dark enterprise-security styling. Sidebar nav
+      (Overview / Assessments / Findings). `npm run build` passes clean
+      (tsc -b && vite build), no TS errors.
+- [x] Typed API client (`frontend/src/api/client.ts`,
+      `frontend/src/api/types.ts`) mirroring `backend/app/schemas/*.py`.
+- [x] Assessment upload UI + import summary
+      (`frontend/src/pages/Assessments.tsx` — new-assessment form with CSV
+      upload → shows `ImportSummaryOut` with warnings;
+      `frontend/src/pages/AssessmentDetail.tsx` — per-assessment
+      priority distribution + previous-assessment comparison).
+- [x] Findings table + detail page
+      (`frontend/src/pages/Findings.tsx` — search + priority/status/category/
+      severity/owner filters, all wired to the GET /findings query params;
+      `frontend/src/pages/FindingDetail.tsx` — risk explanation, asset info,
+      assessment history, owner/status editing, remediation notes form,
+      validation recording form).
+- [x] Dashboard UI (`frontend/src/pages/Overview.tsx` — top metric cards,
+      remediation funnel, Recharts pie (priority) + bar (category) charts,
+      assessment comparison card).
+- [ ] **NOT YET DONE: run the frontend against a live backend and click
+      through the actual demo flow end-to-end** (upload → findings →
+      assign → remediate → validate → second import → dashboard trends).
+      This is the single most important remaining step — code has not been
+      exercised in a browser yet, only `tsc`/`vite build` checked.
+- [ ] Docker Compose stack smoke test (`docker compose up --build`) —
+      not run this session.
+- [ ] README polish pass after the live demo is confirmed working.
 
-### Verified working (backend, via curl / TestClient, this session)
+### Verified working (backend, via curl / TestClient, prior session)
 
 - Upload a Pentera CSV → normalized findings with risk score/priority/reasons.
 - Tolerant parsing across two different header sets (see the two sample CSVs).
@@ -200,19 +223,25 @@ _Last updated: 2026-08-20 (mid-implementation checkpoint)._
 
 ### Known gaps / not yet verified
 
+- **Frontend has not been run in a browser against the live backend yet** —
+  only verified to type-check and build. Next session should start the
+  backend (SQLite), start `npm run dev`, load sample data, and click through
+  the whole `docs/MVP_SCOPE.md` "Definition of done" flow, fixing whatever
+  breaks.
 - Docker Compose stack has not been run in this session (only local SQLite +
-  uvicorn was tested). Backend `Dockerfile` and `docker-compose.yml` exist but
-  need a `docker compose up --build` smoke test.
+  uvicorn was tested, and `npm run build` locally). Backend `Dockerfile`,
+  `frontend/Dockerfile`, and `docker-compose.yml` exist but need a
+  `docker compose up --build` smoke test.
 - No Postgres run yet — only SQLite. Models avoid Postgres-only types so this
   should be low-risk, but has not been proven.
-- Frontend does not exist yet — no `package.json`, no Vite config, nothing in
-  `frontend/`.
-- `backend/app.db` (SQLite dev DB) and `backend/venv/` are git-ignored and
-  untracked, as intended — regenerate with the commands below.
+- `backend/app.db` (SQLite dev DB), `backend/venv/`, and
+  `frontend/node_modules/` are git-ignored and untracked, as intended —
+  regenerate with the commands below.
 
-## How to run the project right now (backend only, since frontend isn't built)
+## How to run the project right now
 
 ```bash
+# Backend
 cd backend
 python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
@@ -221,52 +250,52 @@ alembic upgrade head
 uvicorn app.main:app --reload
 # API docs: http://localhost:8000/docs
 
-# in another terminal, from repo root:
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
+# App: http://localhost:5173
+
+# Sample data (separate terminal, from repo root, backend must be running)
 python3 scripts/load_sample_data.py http://localhost:8000
 ```
 
 ## Git / GitHub status
 
-- Local git repo initialized (`main` branch), but **had zero commits** until
-  this checkpoint — see git log for the actual checkpoint commit.
-- GitHub CLI (`gh`) is **not installed** in this environment, so no GitHub
-  repo has been created and nothing has been pushed. To do so once `gh` is
-  available and authenticated:
+- Local git repo initialized, branch `main`.
+- Remote `origin` = `https://github.com/Tahaa21/adpa-tracker.git` (connected
+  this session). The remote repo pre-existed with a single placeholder commit
+  (`README.md` containing only `# adpa-tracker`) — reconciled by keeping our
+  full README and merging histories rather than force-pushing.
+- GitHub CLI (`gh`) is **not installed** in this environment, so GitHub
+  issues have not been created/updated from here. If `gh` becomes available:
 
   ```bash
-  gh repo create ad-security-remediation-tracker --private --source=. --remote=origin
-  git push -u origin main
-  ```
-
-  Or without `gh`, create the repo manually on GitHub then:
-
-  ```bash
-  git remote add origin <repo-url>
-  git push -u origin main
+  gh issue create --title "..." --body "..."
   ```
 
 ## Next recommended task (pick up here)
 
-**Build the frontend.** In order:
+**Verify the frontend against the live backend, end to end.** The code for
+every screen exists and builds clean, but has not been exercised in a
+browser this session:
 
-1. `npm create vite@latest frontend -- --template react-ts`, add Tailwind CSS
-   and Recharts, set up React Router with the sidebar nav
-   (Overview/Assessments/Findings/Remediation/Validation).
-2. A small typed `frontend/src/api/client.ts` wrapping `fetch` against
-   `VITE_API_BASE_URL`, with types mirroring `backend/app/schemas/*.py`.
-3. Assessments page: list + "New Assessment" form (name/date/environment/notes
-   + CSV file) → POST `/imports/pentera` → show the `ImportSummaryOut` result.
-4. Findings page: table bound to GET `/findings` with the filter params it
-   already supports (`search`, `priority`, `status`, `category`, `severity`,
-   `owner_id`), clicking a row opens a detail view (GET `/findings/{id}`) with
-   owner/status editing (PATCH `/findings/{id}`), remediation notes (POST
-   `/remediations`), and validation entry (POST `/validations`).
-5. Overview/dashboard page bound to GET `/dashboard`, using Recharts for the
-   priority/category distributions and the assessment comparison numbers.
-6. Once the UI round-trips the full demo flow from `docs/MVP_SCOPE.md`
-   ("Definition of done"), do the Docker Compose smoke test, then README
-   polish and a final commit.
+1. Start the backend (SQLite) and frontend per "How to run" above.
+2. Load sample data via `scripts/load_sample_data.py`, or upload
+   `sample-data/pentera_assessment_1_2026-05-15.csv` through the UI.
+3. Walk the exact `docs/MVP_SCOPE.md` "Definition of done" flow by hand:
+   dashboard → upload → findings list/filters → finding detail → assign
+   owner → `IN_REMEDIATION` → remediation note → `READY_FOR_VALIDATION` →
+   validation `PASS` → `VALIDATED` → import second assessment → dashboard
+   shows new/recurring/resolved + risk reduction %.
+4. Fix whatever breaks (likely candidates: CORS if `VITE_API_BASE_URL`
+   mismatches, date input formatting, Tailwind v4 class issues since this
+   project uses the newer `@tailwindcss/vite` plugin rather than the classic
+   `tailwind.config.js` setup most examples show).
+5. Then: `docker compose up --build` smoke test, README polish, final
+   commit.
 
-Everything the frontend needs already exists and is tested on the backend —
-this is now a pure frontend-building task, not backend design work. Re-read
-`docs/ARCHITECTURE.md`'s "Frontend layout" section before starting.
+Re-read `docs/ARCHITECTURE.md`'s "Frontend layout" section and
+`frontend/src/api/client.ts` before making changes — the API surface is
+already complete and tested; this phase is about wiring/UI verification, not
+new backend design.
