@@ -142,10 +142,13 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-20 (second checkpoint — frontend scaffolded)._
+_Last updated: 2026-08-20 (third checkpoint — MVP demo flow verified live in
+browser)._
 
-**Backend: fully working and tested. Frontend: scaffolded and builds clean,
-but NOT yet verified end-to-end against a live backend.**
+**The MVP is functionally complete and verified end-to-end in a real browser
+against a live backend.** The one remaining unverified piece is the Docker
+Compose stack itself, blocked by a host environment issue (see below) — the
+application code is not in question.
 
 - [x] Repo structure, git init, docs (CLAUDE.md, docs/ARCHITECTURE.md,
       docs/DATA_MODEL.md, docs/PENTERA_IMPORT.md, docs/MVP_SCOPE.md)
@@ -197,46 +200,79 @@ but NOT yet verified end-to-end against a live backend.**
 - [x] Dashboard UI (`frontend/src/pages/Overview.tsx` — top metric cards,
       remediation funnel, Recharts pie (priority) + bar (category) charts,
       assessment comparison card).
-- [ ] **NOT YET DONE: run the frontend against a live backend and click
-      through the actual demo flow end-to-end** (upload → findings →
-      assign → remediate → validate → second import → dashboard trends).
-      This is the single most important remaining step — code has not been
-      exercised in a browser yet, only `tsc`/`vite build` checked.
-- [ ] Docker Compose stack smoke test (`docker compose up --build`) —
-      not run this session.
-- [ ] README polish pass after the live demo is confirmed working.
+- [x] **Full demo flow verified live in a real browser** (Claude Browser
+      pane, not just `tsc`/`vite build`) against a running backend
+      (`uvicorn` + SQLite) with the two sample assessments loaded: dashboard
+      → findings list/filters → finding detail → created an owner inline →
+      assigned it → `ASSIGNED` → `IN_REMEDIATION` → added a remediation note
+      → `READY_FOR_VALIDATION` → recorded a `PASS` validation → `VALIDATED`
+      → assessment detail page shows the 22.6% risk-reduction comparison.
+      Every number shown in the UI was cross-checked against the API
+      response. See "Known gaps" below for the one cosmetic issue found and
+      fixed.
+- [ ] **Docker Compose stack — BLOCKED, not application code's fault.** See
+      "Docker Compose status" below.
+- [x] README polished (this pass).
 
-### Verified working (backend, via curl / TestClient, prior session)
+### Verified working, live, in a browser (this session)
 
-- Upload a Pentera CSV → normalized findings with risk score/priority/reasons.
-- Tolerant parsing across two different header sets (see the two sample CSVs).
-- Unknown finding types import as `UNKNOWN`/`OTHER` instead of failing.
-- Re-importing a second assessment correctly identifies new / recurring /
-  resolved findings via fingerprint matching, and flips `currently_present`.
-- Full workflow: assign owner → `IN_REMEDIATION` → blocked direct
-  `VALIDATED` transition (400) → remediation note → `READY_FOR_VALIDATION` →
-  validation `PASS` → `VALIDATED`. Validation `FAIL` correctly reopens to
-  `IN_REMEDIATION`.
-- Dashboard endpoint returns top metrics, remediation funnel, priority/category
-  distribution, and previous-vs-current assessment comparison with risk
-  reduction %.
+- Dashboard: top metrics, remediation funnel, priority pie chart, category
+  bar chart, and the assessment-over-assessment comparison card (39.4 →
+  30.5 risk score, 22.6% reduction, 5 new / 38 recurring / 10 resolved) —
+  all matched the API response exactly.
+- Findings table: all 53 findings rendered, search/priority/status/
+  category/severity/owner filters all present and wired to real query
+  params; resolved (no-longer-observed) findings shown dimmed.
+- Finding detail: risk explanation with all 5 scoring reasons rendered
+  correctly for a P1 (100/100) finding; assessment history; remediation
+  guidance.
+- **Owner creation did not have a UI** when first tested — fixed this
+  session by adding a "+ New owner / team" inline quick-add form to
+  `FindingDetail.tsx` (`QuickAddOwner` component) that calls
+  `POST /owners`. This was the only real gap found during live testing.
+- Full workflow via the UI: assign owner (auto-moved `OPEN` → `ASSIGNED`) →
+  moved to `IN_REMEDIATION` → added a remediation note + moved to
+  `READY_FOR_VALIDATION` → recorded a `PASS` validation → status became
+  `VALIDATED`. Confirmed both in the UI (after a fresh page load) and via
+  direct API query.
+- Assessment detail page: per-assessment priority distribution, previous-
+  vs-current comparison, and import warnings list all render correctly.
+- Browser console checked clean in a fresh tab (one stale HMR-only error
+  from a live file edit did not reproduce after a hard reload / new tab).
+
+### Docker Compose status: blocked by host disk space, not the app
+
+`docker compose up --build` was attempted this session. The image builds
+succeeded (backend + frontend both built cleanly), but creating the
+Postgres container failed with `input/output error` from the Docker daemon,
+and subsequent `docker` cleanup commands (`image rm`, `builder prune`) also
+failed the same way. Root cause: **the host machine's disk had only ~160MB
+free** (`df -h /` showed 99% used) — Docker's own internal metadata DBs
+could not be written. This is a host environment constraint, not a bug in
+`docker-compose.yml`, the `Dockerfile`s, or the app. Docker was left in a
+partially-built state (images built, containers not created) since further
+Docker operations were failing on I/O errors and it was not safe to keep
+retrying against a full disk.
+
+**Next session must free host disk space first** (empty Trash, clear Docker
+Desktop's data via its own UI, or otherwise recover space — do not assume
+`docker system prune` will work while the disk is full, it may itself fail)
+before attempting `docker compose up --build` again. The Postgres path is
+otherwise expected to work — the SQLAlchemy models avoid Postgres-only
+types, `DATABASE_URL` is the only thing that changes between SQLite and
+Postgres, and both backend and frontend Dockerfiles build successfully.
 
 ### Known gaps / not yet verified
 
-- **Frontend has not been run in a browser against the live backend yet** —
-  only verified to type-check and build. Next session should start the
-  backend (SQLite), start `npm run dev`, load sample data, and click through
-  the whole `docs/MVP_SCOPE.md` "Definition of done" flow, fixing whatever
-  breaks.
-- Docker Compose stack has not been run in this session (only local SQLite +
-  uvicorn was tested, and `npm run build` locally). Backend `Dockerfile`,
-  `frontend/Dockerfile`, and `docker-compose.yml` exist but need a
-  `docker compose up --build` smoke test.
-- No Postgres run yet — only SQLite. Models avoid Postgres-only types so this
-  should be low-risk, but has not been proven.
+- **Docker Compose has not successfully brought up all three services** —
+  see above. This is the only remaining item before the MVP can be called
+  fully done per the original spec (which allows SQLite for dev but intends
+  Postgres via Docker Compose as the deployment target).
 - `backend/app.db` (SQLite dev DB), `backend/venv/`, and
   `frontend/node_modules/` are git-ignored and untracked, as intended —
   regenerate with the commands below.
+- A local `.env` (copied from `.env.example`) exists on disk for the Docker
+  test but is git-ignored, as intended — not committed.
 
 ## How to run the project right now
 
@@ -276,26 +312,26 @@ python3 scripts/load_sample_data.py http://localhost:8000
 
 ## Next recommended task (pick up here)
 
-**Verify the frontend against the live backend, end to end.** The code for
-every screen exists and builds clean, but has not been exercised in a
-browser this session:
+**Free host disk space, then finish the Docker Compose smoke test.** That is
+the only remaining gap:
 
-1. Start the backend (SQLite) and frontend per "How to run" above.
-2. Load sample data via `scripts/load_sample_data.py`, or upload
-   `sample-data/pentera_assessment_1_2026-05-15.csv` through the UI.
-3. Walk the exact `docs/MVP_SCOPE.md` "Definition of done" flow by hand:
-   dashboard → upload → findings list/filters → finding detail → assign
-   owner → `IN_REMEDIATION` → remediation note → `READY_FOR_VALIDATION` →
-   validation `PASS` → `VALIDATED` → import second assessment → dashboard
-   shows new/recurring/resolved + risk reduction %.
-4. Fix whatever breaks (likely candidates: CORS if `VITE_API_BASE_URL`
-   mismatches, date input formatting, Tailwind v4 class issues since this
-   project uses the newer `@tailwindcss/vite` plugin rather than the classic
-   `tailwind.config.js` setup most examples show).
-5. Then: `docker compose up --build` smoke test, README polish, final
-   commit.
+1. Check `df -h /` — if available space is still under ~1-2GB, free space
+   first (empty Trash, use Docker Desktop's own "clean / purge data" UI,
+   remove unused large files). Do not assume Docker CLI cleanup commands
+   will succeed on a full disk — they failed with I/O errors this session.
+2. `cd /Users/tahaa/ad-sec-tracker && docker compose up --build` (a `.env`
+   already exists locally, copied from `.env.example`; it's git-ignored).
+3. Confirm all three containers (`db`, `backend`, `frontend`) come up
+   healthy, the backend connects to Postgres (not SQLite) and runs its
+   Alembic migration successfully, and the frontend loads at
+   `http://localhost:5173` and can talk to the backend at
+   `http://localhost:8000`.
+4. Optionally re-run `scripts/load_sample_data.py` against the
+   Postgres-backed backend to confirm the import pipeline works identically
+   against Postgres as it did against SQLite.
+5. Commit.
 
-Re-read `docs/ARCHITECTURE.md`'s "Frontend layout" section and
-`frontend/src/api/client.ts` before making changes — the API surface is
-already complete and tested; this phase is about wiring/UI verification, not
-new backend design.
+Everything else — backend logic, all APIs, the full frontend, and the
+complete demo workflow — is built and has been verified live in a browser
+this session. This is genuinely the last checklist item, not a "re-verify
+everything" task.

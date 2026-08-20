@@ -19,10 +19,12 @@ export default function FindingDetail() {
     api.getFinding(Number(id)).then(setFinding).catch((e) => setError(e.message))
   }
 
-  useEffect(load, [id])
-  useEffect(() => {
+  function loadOwners() {
     api.listOwners().then(setOwners).catch(() => {})
-  }, [])
+  }
+
+  useEffect(load, [id])
+  useEffect(loadOwners, [])
 
   if (error) return <ErrorState message={error} />
   if (!finding) return <LoadingState />
@@ -162,7 +164,8 @@ export default function FindingDetail() {
                 ))}
               </select>
             </label>
-            <label className="block">
+            <QuickAddOwner onAdded={loadOwners} />
+            <label className="mt-4 block">
               <span className="mb-1 block text-xs font-medium text-slate-400">Status</span>
               <select className="select w-full" value={finding.status} onChange={(e) => handleStatusChange(e.target.value)}>
                 {ALL_STATUSES.map((s) => (
@@ -179,6 +182,60 @@ export default function FindingDetail() {
         </div>
       </div>
     </div>
+  )
+}
+
+function QuickAddOwner({ onAdded }: { onAdded: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [team, setTeam] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs font-medium text-sky-400 hover:underline"
+      >
+        + New owner / team
+      </button>
+    )
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) return
+    setSubmitting(true)
+    try {
+      await api.createOwner({ name: name.trim(), team: team.trim() || undefined })
+      setName('')
+      setTeam('')
+      setOpen(false)
+      onAdded()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-2 flex items-center gap-2">
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Owner name"
+        className="input"
+      />
+      <input value={team} onChange={(e) => setTeam(e.target.value)} placeholder="Team (optional)" className="input" />
+      <button
+        type="submit"
+        disabled={submitting}
+        className="whitespace-nowrap rounded-md bg-sky-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+      >
+        Add
+      </button>
+    </form>
   )
 }
 
