@@ -1,3 +1,15 @@
+# LOCAL-ONLY NETWORK EXPOSURE NOTE
+#
+# Every service in this file listens on 0.0.0.0 *inside its own container* —
+# that is required for Docker's port-forwarding to reach the process at
+# all, it is not a LAN-exposure decision by itself. The actual exposure
+# decision is the HOST-side bind address in each `ports:` mapping below
+# (`127.0.0.1:<port>:<container-port>`), which restricts the published port
+# so it is only reachable from this machine, never from the LAN. Do not
+# "simplify" a mapping back down to `"<port>:<port>"` — that publishes on
+# all host interfaces (0.0.0.0) by default and would expose the service to
+# the local network.
+
 services:
   db:
     image: postgres:16-alpine
@@ -6,8 +18,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-adsec}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adsec_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-adsec_tracker}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # No `ports:` mapping — Postgres is reachable from the `backend`
+    # container over the internal Docker Compose network (hostname `db`,
+    # port 5432) and does not need to be published to the host at all. If
+    # you genuinely need host access (e.g. to inspect the DB with a local
+    # Postgres client), uncomment the block below — it is already
+    # localhost-only and must stay that way; never remove the `127.0.0.1:`
+    # prefix.
+    # ports:
+    #   - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,12 +44,15 @@ services:
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-10}
       LOCAL_ONLY: ${LOCAL_ONLY:-true}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./backend:/app
+    # --host 0.0.0.0 here is the in-container bind (required so Docker's
+    # port forwarding can reach uvicorn) — the host-side restriction is the
+    # `127.0.0.1:` prefix on the `ports:` mapping above, not this flag.
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
@@ -40,12 +62,15 @@ services:
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
     ports:
-      - "${FRONTEND_PORT:-5173}:5173"
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
     depends_on:
       - backend
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    # Same distinction as the backend: --host 0.0.0.0 is required inside
+    # the container for Docker to forward the port; the host-side
+    # restriction is the `127.0.0.1:` prefix above.
     command: npm run dev -- --host 0.0.0.0 --port 5173
 
 volumes:

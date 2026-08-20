@@ -76,7 +76,7 @@ python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 export DATABASE_URL=sqlite:///./app.db
 alembic upgrade head
-uvicorn app.main:app --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Frontend only:
@@ -100,23 +100,35 @@ python3 scripts/load_sample_data.py
 ```
 
 Reset local data (clears assessments/findings/assets/remediations/
-validations; keeps owners unless `--include-owners`; never touches source
-code or migrations):
+validations/owners by default — pass `--keep-owners` to preserve owners;
+never touches source code or migrations):
 
 ```bash
 cd backend && source venv/bin/activate
 python3 ../scripts/reset_local_data.py --yes
 ```
 
+Security preflight (run before working with real assessment data; static
+checks only, never inspects data):
+
+```bash
+python3 scripts/local_security_preflight.py
+```
+
 ## Local data security
 
 This app is LOCAL-ONLY by design: `LOCAL_ONLY=true` (default) forces CORS to
-localhost origins regardless of env misconfiguration, there are zero
+localhost origins regardless of env misconfiguration (CORS restricts which
+browser origins may call the API — it is not an egress firewall), all
+Docker/uvicorn/Vite host bindings are localhost-only, there are zero
 outbound network integrations anywhere in the codebase (audited — see the
 doc below), uploaded files are never written to disk, and credential-shaped
-CSV columns are redacted before persistence. Full details, verification
-steps, and known limitations: **[docs/LOCAL_DATA_SECURITY.md](docs/LOCAL_DATA_SECURITY.md)**.
-Read this before importing real Pentera assessment data.
+CSV columns/fields are redacted before persistence. Full details,
+verification steps, and honestly-stated limitations:
+**[docs/LOCAL_DATA_SECURITY.md](docs/LOCAL_DATA_SECURITY.md)**. Read this
+before importing real Pentera assessment data — it includes the exact
+"Work Laptop / Real Data" procedure and a `scripts/local_security_preflight.py`
+script to run first.
 
 ## Architecture rules
 
@@ -162,15 +174,24 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-20 (fourth checkpoint — MVP verified working via
-local fallback after Docker engine proved unresponsive on this host)._
+_Last updated: 2026-08-20 (fifth checkpoint — network-exposure + LOCAL_ONLY
+hardening pass, ahead of real-data use on a work laptop)._
 
-**The MVP is functionally complete and verified end-to-end in a real browser
-against a live backend, and is running right now via the local
-Python/SQLite + npm dev fallback.** Docker Compose has not yet been proven
-end-to-end on this host due to Docker Desktop issues unrelated to the
-application code (see "Docker Compose status" below) — per explicit user
-direction, this was not chased further so as not to block a working MVP.
+**The MVP is functionally complete, verified end-to-end in a real browser,
+and hardened for local-only use with real assessment data.** Two hardening
+passes now: (1) redaction/logging/reset-script/gitignore work from the
+prior checkpoint, and (2) this pass — Docker/uvicorn/Vite host bindings
+locked to localhost/127.0.0.1, Postgres no longer published to the host at
+all, LOCAL_ONLY/CORS documentation corrected to not overclaim (CORS is not
+an egress firewall — said explicitly now), inline `key:value` credential
+redaction added for free-text fields (closing the exact gap the user
+flagged: `"password = X"` in a description), `reset_local_data.py` now
+wipes owners by default, and a new `scripts/local_security_preflight.py`
+static safety check. Docker Compose itself has still not been proven
+end-to-end on this host (see "Docker Compose status" below) — the port-
+binding fixes are reviewed/correct by inspection but unconfirmed against a
+live `docker compose up`; the local SQLite fallback is what's actually
+verified.
 
 - [x] Repo structure, git init, docs (CLAUDE.md, docs/ARCHITECTURE.md,
       docs/DATA_MODEL.md, docs/PENTERA_IMPORT.md, docs/MVP_SCOPE.md)
@@ -289,7 +310,7 @@ local fallback — which is fully working right now:
 # Backend
 cd backend && source venv/bin/activate
 export DATABASE_URL=sqlite:///./app.db
-uvicorn app.main:app --port 8000 &
+uvicorn app.main:app --host 127.0.0.1 --port 8000 &
 
 # Frontend
 cd frontend && npm run dev &
@@ -333,7 +354,7 @@ python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 export DATABASE_URL=sqlite:///./app.db
 alembic upgrade head
-uvicorn app.main:app --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 # API docs: http://localhost:8000/docs
 
 # Frontend (separate terminal)

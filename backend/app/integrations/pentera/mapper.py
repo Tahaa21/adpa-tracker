@@ -6,6 +6,7 @@ change needed. Unrecognized findings are never a hard failure: they import as
 normalized_type=UNKNOWN, category=OTHER, with the original title preserved.
 """
 from app.integrations.pentera.schemas import NormalizedFinding, ParseResult, RawPenteraRow
+from app.services.redaction import redact_inline_credentials
 
 # Ordered (normalized_type, category, [required keyword groups]) — first match wins.
 # Each keyword group is a list of alternative substrings; ALL groups must match
@@ -143,8 +144,12 @@ def map_rows(rows: list[RawPenteraRow]) -> ParseResult:
                 title=title if normalized_type != "UNKNOWN" else title,
                 source_title=title,
                 severity=severity,
-                description=row.description,
-                remediation_guidance=row.recommendation,
+                # Redact any "key: value" / "key=value" credential pattern
+                # embedded in free text (defense in depth beyond the
+                # header-based column redaction in parser.py — see
+                # services/redaction.py for scope/limits).
+                description=redact_inline_credentials(row.description),
+                remediation_guidance=redact_inline_credentials(row.recommendation),
                 asset_name=asset_name,
                 asset_type=asset_type,
                 asset_external_identifier=identifier,

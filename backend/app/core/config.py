@@ -1,12 +1,22 @@
 """Application settings, sourced from environment variables (.env).
 
-LOCAL_ONLY (default true) is a hard guarantee for this MVP: with it enabled,
-the app never initializes any outbound network integration and CORS is
-force-restricted to localhost origins regardless of what CORS_ORIGINS is set
-to. There are currently zero external integrations in this codebase (no
-telemetry, analytics, error reporting, or AI/LLM calls) — LOCAL_ONLY exists
-to keep it that way structurally, not just by omission. See
-docs/LOCAL_DATA_SECURITY.md.
+LOCAL_ONLY (default true) is an application-level safeguard, not a network
+firewall. With it enabled: browser CORS is force-restricted to localhost
+origins regardless of what CORS_ORIGINS is set to, and there are currently
+zero configured external integrations anywhere in this codebase (no
+telemetry, analytics, error reporting, cloud storage, or AI/LLM calls) —
+LOCAL_ONLY exists to keep that true structurally (nothing can silently
+enable one via env var) rather than only by omission.
+
+What this does NOT do: CORS is a browser-enforced restriction on which web
+origins may call this API from JavaScript — it has no effect on server-to-
+server requests, curl, or any non-browser client, and it does nothing to
+stop the backend process itself from making an outbound connection if code
+were added that did so. LOCAL_ONLY is not an egress firewall and does not
+replace one. If you need a hard OS-level guarantee that this machine cannot
+send data anywhere, use your OS firewall or run without network access —
+see docs/LOCAL_DATA_SECURITY.md for the full, honest breakdown of what is
+and isn't guaranteed.
 """
 import re
 from functools import lru_cache
@@ -23,7 +33,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     max_upload_size_mb: int = 10
 
-    # Hard local-only guarantee. See module docstring. Default TRUE.
+    # Application-level local-only safeguard. See module docstring for what
+    # this does and does not guarantee. Default TRUE.
     local_only: bool = True
 
     @property
@@ -31,8 +42,9 @@ class Settings(BaseSettings):
         origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
         if self.local_only:
             # In LOCAL_ONLY mode, silently drop any non-localhost origin
-            # rather than trusting env config — this is a hard guarantee,
-            # not a suggestion.
+            # rather than trusting env config. This restricts which
+            # browser origins may call the API — see module docstring for
+            # what this does and does not cover.
             origins = [o for o in origins if _LOCALHOST_ORIGIN_RE.match(o)]
         return origins
 

@@ -24,10 +24,11 @@ SENSITIVE_HEADER_PATTERNS = [
     "password",
     "passwd",
     "pwd",
-    "credential",
+    "credential",  # also matches "credentials" (substring, post-normalize)
     "secret",
-    "hash",
+    "hash",  # also matches "nt hash", "lm hash", "ntlm hash", "password hash"
     "ntlm",
+    "cracked",  # e.g. a bare "Cracked" or "Cracked Value" column
     "cleartext",
     "plaintext",
     "privatekey",
@@ -38,6 +39,22 @@ SENSITIVE_HEADER_PATTERNS = [
 ]
 
 REDACTED_MARKER = "[REDACTED - sensitive field, value not stored]"
+
+# Defense-in-depth for free-text fields (description/recommendation) that
+# aren't their own dedicated column: catches the common "key: value" /
+# "key=value" shape, e.g. "Account svc_backup password = Summer2024!" ->
+# "Account svc_backup password: [REDACTED]". This is intentionally narrow —
+# it matches an explicit key/value pairing, not arbitrary prose, because a
+# broader pattern would false-positive heavily on legitimate remediation
+# guidance that discusses passwords without stating one (e.g. "reset the
+# password"). Known limitation: prose that states a secret without a
+# key/value delimiter (e.g. "the password is Summer2024!") is NOT caught by
+# this — see docs/LOCAL_DATA_SECURITY.md.
+_INLINE_CREDENTIAL_RE = re.compile(
+    r"(?i)\b(password|passwd|pwd|credential(?:s)?|secret|token|api[_ ]?key|"
+    r"cleartext|plaintext|nt\s*hash|lm\s*hash|ntlm(?:\s*hash)?|hash)\b"
+    r"(\s*[:=]\s*)(\S+)"
+)
 
 
 def _normalize_header(header: str) -> str:
@@ -51,12 +68,37 @@ def is_sensitive_header(header: str) -> bool:
 
 def redact_row(raw: dict[str, str]) -> dict[str, str]:
     """Return a copy of a raw CSV row dict with sensitive-looking values
-    replaced by a fixed marker. Non-matching columns pass through unchanged.
+    redacted, in two passes:
+
+    1. Any column whose HEADER matches a sensitive pattern has its entire
+       value replaced with the fixed marker (handles a dedicated
+       "Password"/"Evidence"/etc. column).
+    2. Any surviving value (from a column whose header did NOT match) is
+       still scanned for an inline "key: value" credential pattern (handles
+       e.g. a generic "Notes" column that happens to contain
+       "password: X123"). This matters because unmapped columns are
+       returned to the API via Finding.source_metadata.unmapped_fields, so
+       both passes run before anything is persisted, not just the first.
     """
     redacted: dict[str, str] = {}
     for key, value in raw.items():
         if key is not None and is_sensitive_header(key) and value not in (None, ""):
             redacted[key] = REDACTED_MARKER
+        elif isinstance(value, str):
+            redacted[key] = redact_inline_credentials(value)
         else:
             redacted[key] = value
     return redacted
+
+
+def redact_inline_credentials(text: str | None) -> str | None:
+    """Redact "key: value" / "key=value" credential patterns embedded in
+    free text (e.g. a Description or Recommendation column). Only the value
+    half is replaced; the surrounding sentence and the key label stay
+    readable so the finding itself ("credential exposure detected") is
+    still useful. See module-level comment on _INLINE_CREDENTIAL_RE for
+    scope/limits.
+    """
+    if not text:
+        return text
+    return _INLINE_CREDENTIAL_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", text)
