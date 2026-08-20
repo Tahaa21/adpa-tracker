@@ -8,6 +8,7 @@ backend/.venv/
 venv/
 .venv/
 *.db
+*.db.bak
 *.sqlite
 *.sqlite3
 backend/app.db
@@ -45,6 +46,13 @@ real-data/
 sample-data/real/
 *.pentera.csv
 *-real.csv
+
+# Generated reports/exports (no such feature exists today, but if one is
+# ever added, its output must never be committed by default).
+reports/
+exports/
+*.report.csv
+*.report.pdf
 
 # --- OS / editor ---
 .DS_Store
