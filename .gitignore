@@ -1,0 +1,43 @@
+# --- Python / backend ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+*.db
+*.sqlite3
+backend/app.db
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/build/
+.vite/
+*.local
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Uploads (never commit real assessment data) ---
+backend/uploads/
+uploads/
+sample-data/real/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Docker ---
+docker-compose.override.yml

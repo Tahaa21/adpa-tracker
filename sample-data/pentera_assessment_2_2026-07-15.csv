@@ -1,0 +1,44 @@
+Vulnerability,Risk Severity,Affected Asset,Entity Type,Environment,Details,Mitigation,Confirmed
+Domain Admin Membership,Critical,agarcia,user,fabrikam.local,User account is a direct member of the Domain Admins group.,Remove standing Domain Admins membership; use just-in-time privileged access instead.,No
+DCSync Exposure,High,svc_sync,service_account,fabrikam.local,"Account holds Replicating Directory Changes rights, enabling DCSync.",Remove replication rights from the account; audit who granted them.,No
+Privileged Group Membership,High,mchen,user,fabrikam.local,User account is a member of the Backup Operators group.,Review necessity of Backup Operators membership; remove if not required.,No
+Privileged Group Membership,High,tward,user,fabrikam.local,User account is a member of the Account Operators group.,Review necessity of Account Operators membership; remove if not required.,No
+Privileged Group Membership,Medium,efoster,user,fabrikam.local,User account is a member of the Server Operators group.,Review necessity of Server Operators membership; remove if not required.,No
+Privileged Group Membership,Low,hpatel,user,fabrikam.local,User account is a member of the Print Operators group.,Review necessity of Print Operators membership; remove if not required.,No
+Dormant Privileged Account,Medium,temp_admin2,user,fabrikam.local,Privileged account has not authenticated in over 180 days.,Disable or remove the dormant privileged account.,No
+Dormant Privileged Account,Medium,svc_old_backup,service_account,fabrikam.local,Privileged service account has not authenticated in over 180 days.,Disable or remove the dormant privileged account.,No
+Dormant Privileged Account,High,jold_admin,user,fabrikam.local,Privileged account has not authenticated in over 180 days.,Disable or remove the dormant privileged account.,No
+ACL Abuse,Medium,Default Domain Policy,policy,fabrikam.local,Weak DACL allows unauthorized GPO edits.,Restrict GPO edit rights to Domain Admins / delegated GPO admins only.,No
+Delegation Risk,Medium,APP03,computer,fabrikam.local,Computer object is trusted for unconstrained delegation.,Convert to constrained delegation or remove delegation entirely.,No
+Delegation Risk,Low,FS02,computer,fabrikam.local,Computer object has broad constrained delegation rights.,Narrow the constrained delegation target list.,No
+Password Not Required,High,svc_backup,service_account,fabrikam.local,PASSWD_NOTREQD flag is set on the account.,Clear the PASSWD_NOTREQD flag and set a strong password.,No
+Password Not Required,Medium,svc_ftp,service_account,fabrikam.local,PASSWD_NOTREQD flag is set on the account.,Clear the PASSWD_NOTREQD flag and set a strong password.,No
+Password Not Required,Medium,svc_legacy2,service_account,fabrikam.local,PASSWD_NOTREQD flag is set on the account.,Clear the PASSWD_NOTREQD flag and set a strong password.,No
+Password Never Expires,Medium,svc_sql,service_account,fabrikam.local,Account password is configured to never expire.,Enable password expiration or move to a managed service account (gMSA).,No
+Password Never Expires,Medium,svc_web01,service_account,fabrikam.local,Account password is configured to never expire.,Enable password expiration or move to a managed service account (gMSA).,No
+Password Never Expires,Low,kwilliams,user,fabrikam.local,Account password is configured to never expire.,Enable standard password expiration policy for this account.,No
+Password Never Expires,Low,svc_print,service_account,fabrikam.local,Account password is configured to never expire.,Enable password expiration or move to a managed service account (gMSA).,No
+Reversible Encryption,High,svc_legacy,service_account,fabrikam.local,Account is configured to store passwords using reversible encryption.,Disable the reversible encryption flag on this account.,No
+Password Reuse,Medium,dthompson,user,fabrikam.local,Password matches a password used elsewhere in the assessed environment.,Force a password reset and enforce unique passwords.,No
+Password Reuse,Medium,rlee,user,fabrikam.local,Password matches a password used elsewhere in the assessed environment.,Force a password reset and enforce unique passwords.,No
+Password Reuse,Low,nkim,user,fabrikam.local,Password matches a password used elsewhere in the assessed environment.,Force a password reset and enforce unique passwords.,No
+Weak Password,Medium,jbrown,user,fabrikam.local,Password was cracked by the assessment engine in under one hour.,Rotate the password and enforce a stronger password policy.,Yes
+Weak Password,Medium,svc_monitor,service_account,fabrikam.local,Password was cracked by the assessment engine in under one hour.,Rotate the password and enforce a stronger password policy.,No
+Weak Password,Low,svc_archive,service_account,fabrikam.local,Password was cracked by the assessment engine in under one hour.,Rotate the password and enforce a stronger password policy.,No
+Password Policy Weakness,Medium,fabrikam.local,domain,fabrikam.local,"Default domain password policy allows short, non-complex passwords.",Raise minimum length and enable complexity requirements domain-wide.,No
+Password Policy Weakness,Low,Contractors PSO,policy,fabrikam.local,Fine-grained password policy for contractors is weaker than default.,Align the fine-grained policy with the domain baseline.,No
+Service Account Risk,Medium,svc_backup,service_account,fabrikam.local,Service account has interactive logon rights it does not require.,Remove interactive logon rights; restrict to service logon only.,No
+Service Account Risk,High,svc_deploy,service_account,fabrikam.local,Service account has excessive rights across multiple servers.,Scope the account's rights to only the systems it needs.,No
+Service Account Risk,Medium,svc_scanner,service_account,fabrikam.local,Service account credentials are shared across multiple scheduled tasks.,Issue dedicated credentials per task; avoid credential sharing.,No
+Service Account Risk,Low,svc_helpdesk,service_account,fabrikam.local,Service account has more file share access than its function requires.,Right-size file share ACLs for this account.,No
+Trust Risk,Medium,partner.local,domain,fabrikam.local,External trust to partner.local is configured without SID filtering.,Enable SID filtering / quarantine on the external trust.,No
+Trust Risk,Low,vendor.local,domain,fabrikam.local,Forest trust to vendor.local allows broader authentication scope than required.,Scope authentication on the trust to only the required resources.,No
+Anonymous LDAP Bind Enabled,Medium,DC01,computer,fabrikam.local,Domain controller allows anonymous LDAP binds.,Disable anonymous LDAP binds via dsHeuristics.,No
+Anonymous LDAP Bind Enabled,Medium,DC02,computer,fabrikam.local,Domain controller allows anonymous LDAP binds.,Disable anonymous LDAP binds via dsHeuristics.,No
+SMB Signing Not Required,Low,WKS-118,computer,fabrikam.local,"SMB signing is not enforced, enabling relay attacks.",Enforce SMB signing via Group Policy.,No
+Null Session Enabled,Low,FS01,computer,fabrikam.local,"Null sessions are permitted, allowing anonymous enumeration.",Restrict anonymous access via RestrictAnonymous registry policy.,No
+Password Never Expires,Low,svc_newapp,service_account,fabrikam.local,Account password is configured to never expire.,Enable password expiration or move to a managed service account (gMSA).,No
+Weak Password,Medium,efoster,user,fabrikam.local,Password was cracked by the assessment engine in under one hour.,Rotate the password and enforce a stronger password policy.,No
+Privileged Group Membership,Medium,jcarter,user,fabrikam.local,User account is a member of the Backup Operators group.,Review necessity of Backup Operators membership; remove if not required.,No
+Service Account Risk,Low,svc_reporting2,service_account,fabrikam.local,Service account has more file share access than its function requires.,Right-size file share ACLs for this account.,No
+Anonymous LDAP Bind Enabled,Low,DC03,computer,fabrikam.local,Domain controller allows anonymous LDAP binds.,Disable anonymous LDAP binds via dsHeuristics.,No
