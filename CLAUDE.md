@@ -59,7 +59,26 @@ ad-security-remediation-tracker/          (local folder: ad-sec-tracker)
 
 ## Development commands
 
-Full stack via Docker Compose (Postgres):
+**Primary path — one command** (macOS/Linux; `start.ps1` on Windows,
+unverified): checks tools, creates/reuses `backend/venv`, installs deps
+only when `requirements.txt`/`package-lock.json` changed, runs migrations,
+runs `scripts/local_security_preflight.py` (blocks startup on failure),
+starts backend on `127.0.0.1:8000` and frontend on `localhost:5173`
+(never `0.0.0.0`), Ctrl+C stops both:
+
+```bash
+./start.sh
+```
+
+`./stop.sh` frees ports 8000/5173 if a previous run didn't shut down
+cleanly. Full details/testing notes: see `start.sh`'s test verification in
+the git log, and README's "Quick start" section.
+
+**Manual / development steps** (what `start.sh` wraps — use these directly
+for finer control, e.g. `--reload`, or to debug a `start.sh` failure):
+
+Full stack via Docker Compose (Postgres) — not the primary path, see
+"Docker Compose status" below:
 
 ```bash
 cp .env.example .env
@@ -72,7 +91,7 @@ Backend only, local Python + SQLite (fastest iteration loop):
 
 ```bash
 cd backend
-python3.12 -m venv venv && source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 export DATABASE_URL=sqlite:///./app.db
 alembic upgrade head
@@ -174,8 +193,36 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-20 (fifth checkpoint — network-exposure + LOCAL_ONLY
-hardening pass, ahead of real-data use on a work laptop)._
+_Last updated: 2026-08-20 (sixth checkpoint — one-command startup added)._
+
+**New this checkpoint**: `start.sh` (macOS/Linux, verified end-to-end
+multiple times) and `start.ps1` (Windows, written but unverified — no
+Windows/pwsh available in this dev environment) give a single-command
+local startup: tool checks → venv create/reuse → conditional dependency
+install → `DATABASE_URL`/`LOCAL_ONLY` env → `alembic upgrade head` →
+security preflight (blocks startup on failure) → backend on
+`127.0.0.1:8000` → frontend on `localhost:5173` → prints
+`ADPA Tracker is running at http://localhost:5173`. `stop.sh`/`stop.ps1`
+free ports 8000/5173 if a run didn't shut down cleanly. README's primary
+"Quick start" is now `git clone && ./start.sh`; the old manual steps moved
+to a "Manual / development startup" subsection, not deleted.
+
+**Testing note on Ctrl+C**: verified the full lifecycle (start → run →
+children terminated → `wait` unblocks → cleanup trap runs → clean exit)
+end-to-end via `stop.sh` killing the backend/frontend processes directly.
+Could **not** directly verify a literal terminal Ctrl+C keypress in this
+non-interactive dev environment — `kill -INT`/`-TERM`/`-USR1` sent from a
+separate tool invocation to a backgrounded bash script holding a `trap`
+does not reach the handler here (confirmed via isolated minimal repros;
+this looks like a sandbox/tool-environment characteristic, not a bash
+logic bug — plain `kill` against non-trapped processes works fine, and
+`start.sh` uses the standard, extremely common `trap ... INT TERM EXIT` +
+background-PID + `wait` idiom). `stop.sh` is verified as the always-works
+fallback regardless. If real interactive Ctrl+C ever doesn't clean up for
+you, `./stop.sh` always will.
+
+_Prior checkpoint (fifth) — network-exposure + LOCAL_ONLY hardening pass,
+ahead of real-data use on a work laptop:_
 
 **The MVP is functionally complete, verified end-to-end in a real browser,
 and hardened for local-only use with real assessment data.** Two hardening
@@ -383,32 +430,27 @@ python3 scripts/load_sample_data.py http://localhost:8000
 
 ## Next recommended task (pick up here)
 
-**The MVP itself needs no further work to be demoable** — it's running
-right now via the local fallback (backend on :8000, frontend on :5173,
-sample data loaded). The only open item is proving Docker Compose end-to-end
-on a host where the Docker engine is actually responsive:
+**The MVP itself needs no further work to be demoable** — `./start.sh`
+brings it up fully working (backend on :8000, frontend on :5173, sample
+data loadable in one command). Two open items remain, neither blocking:
 
-1. Confirm Docker Desktop is healthy: `docker compose version` should
-   return instantly; `docker info` should also return within a few seconds
-   (not hang). If `docker info` hangs, Docker Desktop's engine is stuck —
-   that needs a manual restart or troubleshoot/reset from its own UI. Do
-   not spend more than a couple of minutes on this before falling back to
-   local dev again; it has already blocked two sessions.
-2. Once `docker info` is responsive: `cd /Users/tahaa/ad-sec-tracker &&
-   docker compose up --build` (a `.env` already exists locally, copied from
-   `.env.example`; it's git-ignored).
-3. Confirm all three containers (`db`, `backend`, `frontend`) come up
-   healthy, the backend connects to Postgres (not SQLite) and runs its
-   Alembic migration successfully, and the frontend loads at
-   `http://localhost:5173` and can talk to the backend at
-   `http://localhost:8000`.
-4. Optionally re-run `scripts/load_sample_data.py` against the
-   Postgres-backed backend to confirm the import pipeline works identically
-   against Postgres as it did against SQLite.
-5. Commit.
+1. **Verify `start.ps1`/`stop.ps1` on an actual Windows machine.** Written
+   to mirror `start.sh` exactly, syntax-reviewed carefully, but never
+   executed — no Windows/pwsh available in this dev environment. Run it,
+   fix whatever breaks (most likely candidates: the `Scripts\` vs `bin/`
+   venv path handling, or the `vite.cmd` invocation via `Start-Process`).
+2. **Prove Docker Compose end-to-end** on a host where the Docker engine is
+   actually responsive (`docker info` should return in a few seconds, not
+   hang — if it hangs, Docker Desktop's engine is stuck and needs a manual
+   restart/reset from its own UI; don't spend more than a couple minutes on
+   this before falling back to `./start.sh`, it has blocked multiple past
+   sessions). Once responsive: `docker compose up --build`, confirm all
+   three containers come up healthy and the backend runs its Alembic
+   migration against real Postgres, optionally re-run
+   `scripts/load_sample_data.py` against it.
 
-Everything else — backend logic, all APIs, the full frontend, and the
-complete demo workflow — is built, tested, and has been verified live in a
-browser across multiple sessions. Docker Compose is the last checklist item,
-not a "re-verify everything" task, and is not required to use or demo the
-product.
+Everything else — backend logic, all APIs, the full frontend, the complete
+demo workflow, and the one-command macOS/Linux startup — is built, tested,
+and has been verified live across multiple sessions. Neither remaining item
+is a "re-verify everything" task, and neither blocks using or demoing the
+product today via `./start.sh`.

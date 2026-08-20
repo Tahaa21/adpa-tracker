@@ -23,38 +23,54 @@ scope for this MVP.
 - **Backend**: Python + FastAPI + Pydantic + SQLAlchemy + Alembic
 - **Database**: PostgreSQL (via Docker Compose) — SQLite supported as a
   zero-config local dev fallback
-- **Local env**: Docker + Docker Compose
+- **Local env**: Docker + Docker Compose, or a plain `./start.sh`
 
-## Quick start (Docker Compose)
+## Quick start
 
 ```bash
-cp .env.example .env
-docker compose up --build
+git clone https://github.com/Tahaa21/adpa-tracker.git
+cd adpa-tracker
+chmod +x start.sh
+./start.sh
 ```
 
-- Backend API + docs: http://localhost:8000/docs
-- Frontend: http://localhost:5173
+That's it. `start.sh` checks for `python3`/`node`/`npm`, creates the backend
+virtualenv and installs dependencies (only the first time, or when
+`requirements.txt`/`package-lock.json` change), runs database migrations,
+runs the [local security preflight](docs/LOCAL_DATA_SECURITY.md) (and
+refuses to start the app if it fails), then starts the backend on
+`127.0.0.1:8000` and the frontend on `localhost:5173` — never on `0.0.0.0`,
+never on the LAN. Press **Ctrl+C** to stop both cleanly.
 
-All host port mappings in `docker-compose.yml` are bound to `127.0.0.1`
-explicitly (not published to the LAN), and PostgreSQL publishes no host
-port at all — the backend reaches it over the internal Compose network
-only. See [docs/LOCAL_DATA_SECURITY.md](docs/LOCAL_DATA_SECURITY.md) for
-the full network-exposure breakdown.
+```
+ADPA Tracker is running at http://localhost:5173
+```
+
+Windows: use `.\start.ps1` in PowerShell instead (mirrors `start.sh`; see
+the note at the top of that file — it hasn't been run on an actual Windows
+machine yet, so treat it as unverified until you've tried it once).
+
+If a previous run didn't shut down cleanly (e.g. terminal closed instead of
+Ctrl+C), `./stop.sh` (or `.\stop.ps1`) frees ports 8000/5173.
 
 Load the sanitized sample data (two Pentera-style assessments) once the
-backend is up:
+app is running:
 
 ```bash
 python3 scripts/load_sample_data.py http://localhost:8000
 ```
 
-## Quick start (local, no Docker)
+### Manual / development startup (troubleshooting reference)
 
-**Backend** (Python 3.12+, SQLite):
+`start.sh` is just a wrapper around these steps — use them directly if you
+need finer control (e.g. `--reload` during development) or are debugging a
+`start.sh` failure.
+
+**Backend** (Python 3.10+, SQLite):
 
 ```bash
 cd backend
-python3.12 -m venv venv && source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 export DATABASE_URL=sqlite:///./app.db
 alembic upgrade head
@@ -84,6 +100,24 @@ only (Vite's default) — never add `host: true` or `host: '0.0.0.0'` there.
 cd backend && source venv/bin/activate && pytest
 ```
 
+### Docker Compose (alternative, PostgreSQL)
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+- Backend API + docs: http://localhost:8000/docs
+- Frontend: http://localhost:5173
+
+All host port mappings in `docker-compose.yml` are bound to `127.0.0.1`
+explicitly (not published to the LAN), and PostgreSQL publishes no host
+port at all — the backend reaches it over the internal Compose network
+only. See [docs/LOCAL_DATA_SECURITY.md](docs/LOCAL_DATA_SECURITY.md) for
+the full network-exposure breakdown. This path has not been proven
+end-to-end in development (see `CLAUDE.md`) — `start.sh` (SQLite) is the
+verified, primary way to run this app locally today.
+
 ## Documentation
 
 - [CLAUDE.md](CLAUDE.md) — orientation for AI coding agents working in this
@@ -111,7 +145,9 @@ ad-security-remediation-tracker/
 │                       integrations/pentera adapter)
 ├── sample-data/       sanitized fake Pentera-style CSVs (2 assessments)
 ├── docs/              architecture/data model/import/scope docs
-├── scripts/           sample data generation + loading helpers
+├── scripts/           sample data generation + loading + reset + preflight
+├── start.sh / stop.sh   one-command local startup/shutdown (macOS/Linux)
+├── start.ps1 / stop.ps1 Windows PowerShell equivalents
 ├── docker-compose.yml
 └── .env.example
 ```

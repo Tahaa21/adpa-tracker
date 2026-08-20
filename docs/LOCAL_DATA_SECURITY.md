@@ -19,44 +19,52 @@ Follow this exact sequence the first time you run this on a machine you're
 about to load real Pentera assessment data into:
 
 1. **Clone the private repo.**
-   `git clone <your-private-repo-url> && cd ad-security-remediation-tracker`
-2. **Install dependencies** (backend venv + `pip install`, frontend `npm
-   install`) — see "How to run the project" in `CLAUDE.md` / README for the
-   exact commands.
-3. **Verify `LOCAL_ONLY=true`.** Copy `.env.example` to `.env` if you
-   haven't — `LOCAL_ONLY=true` is in there by default. Don't remove it.
-4. **Run the security preflight**:
-   `python3 scripts/local_security_preflight.py` — must print
-   `PASS: Local-only security preflight` before you proceed. If it fails,
-   stop and fix what it flagged; don't import real data with a failing
-   preflight.
-5. **Start the backend explicitly on 127.0.0.1**:
-   `uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` (from
-   `backend/`, venv active).
-6. **Start the frontend**: `npm run dev` (from `frontend/`) — binds to
-   localhost by default, no flags needed.
-7. **Confirm the application loads** at `http://localhost:5173` and the
-   API responds at `http://localhost:8000/health`.
-8. **Confirm the database is empty** before importing real data — either
+   `git clone https://github.com/Tahaa21/adpa-tracker.git && cd adpa-tracker`
+2. **Run `./start.sh`** (`.\start.ps1` on Windows — see the note at the top
+   of that file; it hasn't been run on an actual Windows machine yet).
+   This single command does steps that used to be manual: installs backend
+   and frontend dependencies (only if needed), sets
+   `DATABASE_URL=sqlite:///./app.db` and `LOCAL_ONLY=true`, runs database
+   migrations, **runs the security preflight and refuses to start the app
+   if it fails**, then starts the backend on `127.0.0.1:8000` and the
+   frontend on `localhost:5173` (never `0.0.0.0`). You do not need to run
+   the preflight separately — `start.sh` already gates on it. If you want
+   to run it standalone anyway (e.g. before cloning is even finished
+   installing), it's `python3 scripts/local_security_preflight.py`, and it
+   must print `PASS: Local-only security preflight`.
+3. **Confirm the application loads** — `start.sh` prints
+   `ADPA Tracker is running at http://localhost:5173` once both the
+   backend (`http://127.0.0.1:8000/health`) and frontend are actually
+   responding; it polls both before printing that line, so seeing it is
+   itself a confirmation.
+4. **Confirm the database is empty** before importing real data — either
    it's a fresh clone (nothing seeded yet) or run
    `python3 scripts/reset_local_data.py --yes` to clear any leftover demo
    data first. Real and demo findings will display mixed together if you
    skip this (see "Recommended workflow" below).
-9. **Import your Pentera CSV manually through the browser**:
+5. **Import your Pentera CSV manually through the browser**:
    Assessments → "+ New Assessment" → fill in the form → choose your file
    → Import. Do not script this step for a real file — do it by hand so
    you see exactly what's happening.
-10. **Review the import warnings** shown in the summary card (and, for
-    more detail, on the assessment's detail page) — they tell you which
-    columns/rows weren't recognized. This is also where you'd notice if
-    the parser misread your export's structure.
-11. **Use the application** — findings, remediation workflow, validation,
-    dashboard trends, etc.
-12. **Reset local data when finished**, if desired:
-    `python3 scripts/reset_local_data.py --yes` (from `backend/`, venv
-    active). This wipes assessments, findings, assets, remediations,
-    validations, and owners — not source code, not git history, not the
-    database file/schema itself (it becomes empty, not deleted).
+6. **Review the import warnings** shown in the summary card (and, for
+   more detail, on the assessment's detail page) — they tell you which
+   columns/rows weren't recognized. This is also where you'd notice if
+   the parser misread your export's structure.
+7. **Use the application** — findings, remediation workflow, validation,
+   dashboard trends, etc.
+8. **Stop the app** with Ctrl+C in the terminal running `start.sh` (cleans
+   up both processes), or `./stop.sh` if a previous run was left dangling.
+9. **Reset local data when finished**, if desired:
+   `cd backend && source venv/bin/activate && python3 ../scripts/reset_local_data.py --yes`.
+   This wipes assessments, findings, assets, remediations, validations,
+   and owners — not source code, not git history, not the database
+   file/schema itself (it becomes empty, not deleted).
+
+(The manual step-by-step — separate venv setup, separate `alembic upgrade
+head`, separate preflight run, `uvicorn`/`npm run dev` in two terminals —
+still works exactly as before and is documented in the README under
+"Manual / development startup"; use it if you need `--reload` or are
+debugging a `start.sh` failure.)
 
 ### AI coding assistants and real data
 
@@ -256,6 +264,12 @@ no file contents. (Separately, `uvicorn`'s own access log will show
 does not log request bodies.)
 
 ## Preflight check
+
+`./start.sh` (and `.\start.ps1`) run this automatically before starting
+either service, and refuse to start the app if it fails — you don't need
+to run it separately in the normal `start.sh` flow. To run it standalone
+(e.g. via the manual startup path, or just to check without starting
+anything):
 
 ```bash
 python3 scripts/local_security_preflight.py
