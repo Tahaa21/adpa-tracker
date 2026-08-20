@@ -11,6 +11,7 @@ import io
 import re
 
 from app.integrations.pentera.schemas import RawPenteraRow
+from app.services.redaction import redact_row
 
 # normalized field -> accepted header aliases (case/space/punct-insensitive)
 FIELD_ALIASES: dict[str, list[str]] = {
@@ -106,6 +107,14 @@ def parse_csv(content: bytes) -> tuple[list[RawPenteraRow], list[str]]:
             k: v for k, v in raw.items() if k not in used_headers and v not in (None, "")
         }
 
+        # Redact anything that LOOKS like a credential/secret column before
+        # it is ever persisted (raw_row / source_metadata.unmapped_fields).
+        # This never touches the `mapped` fields used for parsing logic
+        # (asset_name/domain/identifier/etc. must stay real for correct
+        # dedup) — only the archival copies. See services/redaction.py.
+        safe_raw = redact_row(raw)
+        safe_unmapped = redact_row(unmapped)
+
         rows.append(
             RawPenteraRow(
                 row_number=i,
@@ -119,8 +128,8 @@ def parse_csv(content: bytes) -> tuple[list[RawPenteraRow], list[str]]:
                 category=mapped.get("category") or None,
                 identifier=mapped.get("identifier") or None,
                 exploitable=mapped.get("exploitable") or None,
-                unmapped_fields=unmapped,
-                raw=raw,
+                unmapped_fields=safe_unmapped,
+                raw=safe_raw,
             )
         )
 

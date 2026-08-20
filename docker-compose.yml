@@ -23,6 +23,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://adsec:adsec_dev_password@db:5432/adsec_tracker}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-10}
+      LOCAL_ONLY: ${LOCAL_ONLY:-true}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:

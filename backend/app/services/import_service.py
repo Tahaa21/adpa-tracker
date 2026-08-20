@@ -12,6 +12,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from app.core.logging_config import get_logger
 from app.integrations.pentera import mapper, parser
 from app.integrations.pentera.parser import ParseError
 from app.integrations.pentera.schemas import NormalizedFinding
@@ -23,6 +24,8 @@ from app.services.fingerprint import compute_fingerprint
 from app.services.risk_engine import compute_risk
 
 TERMINAL_RESOLVED_STATUSES = {"VALIDATED", "CLOSED"}
+
+log = get_logger("import")
 
 
 @dataclass
@@ -124,9 +127,12 @@ def import_pentera_csv(
     source_filename: str | None,
     notes: str | None,
 ) -> ImportSummary:
+    log.info("Pentera import started: file_size_bytes=%d", len(content))
+
     try:
         raw_rows, parse_warnings = parser.parse_csv(content)
-    except ParseError:
+    except ParseError as exc:
+        log.warning("Pentera import failed at parse stage: %s", type(exc).__name__)
         raise
 
     result = mapper.map_rows(raw_rows)
@@ -226,6 +232,19 @@ def import_pentera_csv(
         assessment.risk_score = 0
 
     db.commit()
+
+    log.info(
+        "Pentera import completed: assessment_id=%d rows_processed=%d rows_imported=%d "
+        "rows_skipped=%d warnings=%d new=%d recurring=%d resolved=%d",
+        assessment.id,
+        result.rows_processed,
+        len(result.findings),
+        result.rows_skipped,
+        len(warnings),
+        new_count,
+        recurring_count,
+        resolved_count,
+    )
 
     return ImportSummary(
         assessment_id=assessment.id,

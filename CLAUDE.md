@@ -49,7 +49,8 @@ ad-security-remediation-tracker/          (local folder: ad-sec-tracker)
 │       └── integrations/
 │           └── pentera/     parser.py / mapper.py / schemas.py
 ├── sample-data/          sanitized fake Pentera-style CSVs (2 assessments)
-├── docs/                 ARCHITECTURE.md, DATA_MODEL.md, PENTERA_IMPORT.md, MVP_SCOPE.md
+├── docs/                 ARCHITECTURE.md, DATA_MODEL.md, PENTERA_IMPORT.md,
+│                          MVP_SCOPE.md, LOCAL_DATA_SECURITY.md
 ├── scripts/               helper scripts (seed sample data, etc.)
 ├── docker-compose.yml
 ├── .env.example
@@ -92,11 +93,30 @@ Backend tests:
 cd backend && source venv/bin/activate && pytest
 ```
 
-Load sample data (after the backend is running):
+Load sample/demo data (after the backend is running):
 
 ```bash
 python3 scripts/load_sample_data.py
 ```
+
+Reset local data (clears assessments/findings/assets/remediations/
+validations; keeps owners unless `--include-owners`; never touches source
+code or migrations):
+
+```bash
+cd backend && source venv/bin/activate
+python3 ../scripts/reset_local_data.py --yes
+```
+
+## Local data security
+
+This app is LOCAL-ONLY by design: `LOCAL_ONLY=true` (default) forces CORS to
+localhost origins regardless of env misconfiguration, there are zero
+outbound network integrations anywhere in the codebase (audited — see the
+doc below), uploaded files are never written to disk, and credential-shaped
+CSV columns are redacted before persistence. Full details, verification
+steps, and known limitations: **[docs/LOCAL_DATA_SECURITY.md](docs/LOCAL_DATA_SECURITY.md)**.
+Read this before importing real Pentera assessment data.
 
 ## Architecture rules
 
