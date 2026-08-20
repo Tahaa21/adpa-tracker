@@ -1,19 +1,29 @@
 #!/usr/bin/env python3
-"""Generates the two sanitized sample Pentera-style CSVs in sample-data/.
+"""Generates the sanitized sample Pentera-style CSV/JSON files in sample-data/.
 
 All names/hosts/domains below are fictional (fabrikam.local, a Microsoft
 sample domain long used in docs/training material). No real company,
-customer, or credential data. Re-run this script to regenerate the CSVs
+customer, or credential data. Re-run this script to regenerate the files
 deterministically.
 
-Assessment 1 and Assessment 2 intentionally use different column headers
-(see HEADERS_A / HEADERS_B) to demonstrate the tolerant Pentera CSV parser.
-Assessment 2 resolves several of the highest-risk findings from Assessment 1,
-keeps most others recurring, and adds a handful of new lower-severity
-findings — so the two together clearly demonstrate measurable risk
-reduction over time.
+Assessment 1 and Assessment 2 (CSV) intentionally use different column
+headers (see HEADERS_A / HEADERS_B) to demonstrate the tolerant Pentera CSV
+parser. Assessment 3 (JSON) continues the same fabrikam.local story one
+step further, in a genuinely JSON-shaped structure (nested `asset` objects,
+not flattened columns) to demonstrate the JSON parser specifically — see
+docs/PENTERA_IMPORT.md's disclaimer: this is a structurally representative
+sanitized sample, not a copy of a real Pentera JSON export (we don't have
+one to copy from).
+
+Assessment 2 resolves several of the highest-risk findings from Assessment 1
+and adds a handful of new lower-severity findings; Assessment 3 resolves a
+few more and adds a couple more — so all three together demonstrate
+measurable risk reduction over time, across both supported formats sharing
+the same fingerprint space (re-importing the same asset/finding in a
+different format is still recognized as the same logical issue).
 """
 import csv
+import json
 from pathlib import Path
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "sample-data"
@@ -202,6 +212,24 @@ NEW_IN_ASSESSMENT_2 = [
      "Disable anonymous LDAP binds via dsHeuristics.", False),
 ]
 
+# Findings resolved between Assessment 2 and Assessment 3 (JSON) — a few
+# more of the remaining higher-severity items get fixed.
+RESOLVED_TITLES_ASSETS_3 = {
+    ("DCSync Exposure", "svc_sync"),
+    ("Domain Admin Membership", "agarcia"),
+    ("Reversible Encryption", "svc_legacy"),
+}
+
+# New findings first observed in Assessment 3 (JSON-only).
+NEW_IN_ASSESSMENT_3 = [
+    ("Password Reuse", "Low", "ghall", "user",
+     "Password matches a password used elsewhere in the assessed environment.",
+     "Force a password reset and enforce unique passwords.", False),
+    ("SMB Signing Not Required", "Low", "WKS-231", "computer",
+     "SMB signing is not enforced, enabling relay attacks.",
+     "Enforce SMB signing via Group Policy.", False),
+]
+
 HEADERS_A = [
     "Finding", "Severity", "Target", "Object Type", "Domain",
     "Description", "Recommendation", "Exploitable",
@@ -224,6 +252,29 @@ def write_csv(path: Path, headers: list[str], rows: list[tuple], exploit_values:
             ])
 
 
+def write_json(path: Path, assessment_name: str, rows: list[tuple]) -> None:
+    """Genuinely JSON-shaped (nested `asset` object, not flattened columns)
+    so this exercises the JSON parser's nested-asset-object handling for
+    real, not just "a CSV row re-encoded as JSON"."""
+    payload = {
+        "scan_metadata": {"tool": "Pentera", "assessment_name": assessment_name},
+        "findings": [
+            {
+                "finding": title,
+                "severity": severity,
+                "asset": {"name": asset, "type": asset_type, "domain": DOMAIN},
+                "description": description,
+                "recommendation": recommendation,
+                "exploitable": exploitable,
+            }
+            for title, severity, asset, asset_type, description, recommendation, exploitable in rows
+        ],
+    }
+    with path.open("w") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")
+
+
 def main() -> None:
     OUT_DIR.mkdir(exist_ok=True)
 
@@ -233,13 +284,26 @@ def main() -> None:
         row for row in FINDINGS if (row[0], row[2]) not in resolved
     ] + NEW_IN_ASSESSMENT_2
 
+    resolved_3 = RESOLVED_TITLES_ASSETS_3
+    assessment_3_rows = [
+        row for row in assessment_2_rows if (row[0], row[2]) not in resolved_3
+    ] + NEW_IN_ASSESSMENT_3
+
     write_csv(OUT_DIR / "pentera_assessment_1_2026-05-15.csv", HEADERS_A, assessment_1_rows, ("true", "false"))
     write_csv(OUT_DIR / "pentera_assessment_2_2026-07-15.csv", HEADERS_B, assessment_2_rows, ("Yes", "No"))
+    write_json(
+        OUT_DIR / "pentera_assessment_3_2026-09-15.json",
+        "Fabrikam AD Assessment - September 2026",
+        assessment_3_rows,
+    )
 
-    print(f"Assessment 1: {len(assessment_1_rows)} rows")
-    print(f"Assessment 2: {len(assessment_2_rows)} rows "
+    print(f"Assessment 1 (CSV): {len(assessment_1_rows)} rows")
+    print(f"Assessment 2 (CSV): {len(assessment_2_rows)} rows "
           f"({len(resolved)} resolved, {len(assessment_2_rows) - len(NEW_IN_ASSESSMENT_2)} recurring, "
           f"{len(NEW_IN_ASSESSMENT_2)} new)")
+    print(f"Assessment 3 (JSON): {len(assessment_3_rows)} rows "
+          f"({len(resolved_3)} resolved, {len(assessment_3_rows) - len(NEW_IN_ASSESSMENT_3)} recurring, "
+          f"{len(NEW_IN_ASSESSMENT_3)} new)")
 
 
 if __name__ == "__main__":

@@ -49,8 +49,9 @@ backend/app/
 │   └── imports.py
 └── integrations/            # source-system adapters — see below
     └── pentera/
-        ├── parser.py
-        ├── mapper.py
+        ├── parser.py         # CSV
+        ├── json_parser.py    # JSON (preferred format; see docs/PENTERA_IMPORT.md)
+        ├── mapper.py         # shared by both — format-specific code stops here
         └── schemas.py
 ```
 
@@ -58,18 +59,24 @@ backend/app/
 
 **A source system's data model must never become the application's data model.**
 
-Every assessment source gets its own adapter package under `app/integrations/<source>/`:
+Every assessment source gets its own adapter package under `app/integrations/<source>/`.
+A source can have more than one *format*-specific parser (Pentera has CSV and
+JSON) as long as they all converge on the same raw-finding shape before the
+mapper — format-specific code must never leak past the parser layer:
 
 ```
-Source export (e.g. Pentera CSV)
+Source export (Pentera CSV or Pentera JSON)
         ↓
-<source>/parser.py   — reads the raw file, tolerant of column/format variance,
-                        produces raw row dicts + parse warnings/errors
+<source>/parser.py OR json_parser.py — reads the raw file, tolerant of
+                        column/format/structure variance, produces the SAME
+                        raw row dicts + parse warnings/errors either way
         ↓
-<source>/schemas.py  — typed "raw finding" shape for that source
+<source>/schemas.py  — typed "raw finding" shape for that source (shared
+                        across formats)
         ↓
 <source>/mapper.py   — maps raw fields → normalized_type, category, severity,
-                        asset info, preserves anything unmapped into source_metadata
+                        asset info, preserves anything unmapped into
+                        source_metadata (shared across formats, unmodified)
         ↓
 Normalized Finding / FindingInstance (internal model, source-agnostic)
         ↓
@@ -89,10 +96,15 @@ only the folder shape and the boundary rule are in place.
 1. `POST /imports/pentera` (multipart file + assessment metadata) hits
    `routers/imports.py`.
 2. The router validates file type/size and delegates to
-   `services/import_service.py`.
-3. `import_service` calls `integrations/pentera/parser.py` to read the CSV into
-   raw rows + warnings, then `integrations/pentera/mapper.py` to normalize each
+   `services/import_service.py` — dispatching to `import_pentera_json` or
+   `import_pentera_csv` by file extension (`.json`/`.csv`).
+3. That function calls `integrations/pentera/json_parser.py` or `parser.py`
+   (format-specific) to read the file into raw rows + warnings, then the
+   SAME `integrations/pentera/mapper.py` (format-agnostic) to normalize each
    row into a `NormalizedFinding` (Pydantic, in `integrations/pentera/schemas.py`).
+   Both import functions delegate to the same shared
+   `_import_parsed_rows()` core from step 4 onward — nothing below this
+   point differs by format.
 4. For each normalized finding, `import_service`:
    - resolves/creates the `Asset`,
    - computes a fingerprint (`services/fingerprint.py`) and finds-or-creates the

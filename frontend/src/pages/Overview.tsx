@@ -72,7 +72,7 @@ export default function Overview() {
       />
 
       {assessment_count === 0 ? (
-        <EmptyState message="No assessments imported yet. Go to Assessments → New Assessment to upload a Pentera CSV." />
+        <EmptyState message="No assessments imported yet. Go to Assessments → New Assessment to upload a Pentera JSON or CSV export." />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">

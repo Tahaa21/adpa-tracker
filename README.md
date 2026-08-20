@@ -17,6 +17,12 @@ This is **not** an attack-path graphing tool and does not replace BloodHound.
 See [docs/MVP_SCOPE.md](docs/MVP_SCOPE.md) for exactly what is and isn't in
 scope for this MVP.
 
+**Pentera export formats**: **JSON is the preferred format** (CSV remains
+fully supported; PDF is not yet supported). See
+[docs/PENTERA_IMPORT.md](docs/PENTERA_IMPORT.md) — and note its explicit
+disclaimer: JSON support is structurally defensive but has not been
+validated against a real sanitized Pentera export.
+
 ## Stack
 
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS + Recharts
@@ -128,8 +134,8 @@ verified, primary way to run this app locally today.
   Pentera adapter boundary rule
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — Assessment / Asset / Finding /
   FindingInstance / Owner / Remediation / ValidationRecord
-- [docs/PENTERA_IMPORT.md](docs/PENTERA_IMPORT.md) — tolerant CSV parsing,
-  normalization rules, fingerprinting/dedup algorithm
+- [docs/PENTERA_IMPORT.md](docs/PENTERA_IMPORT.md) — tolerant JSON/CSV
+  parsing, normalization rules, fingerprinting/dedup algorithm
 - [docs/LOCAL_DATA_SECURITY.md](docs/LOCAL_DATA_SECURITY.md) — **read this
   before importing real assessment data**: what's stored/where, network
   exposure, credential redaction, upload retention, logging, reset/reseed
@@ -143,7 +149,7 @@ ad-security-remediation-tracker/
 ├── frontend/          React app (Vite)
 ├── backend/           FastAPI app (models, schemas, services, routers,
 │                       integrations/pentera adapter)
-├── sample-data/       sanitized fake Pentera-style CSVs (2 assessments)
+├── sample-data/       sanitized fake Pentera-style CSV (2) + JSON (1) assessments
 ├── docs/              architecture/data model/import/scope docs
 ├── scripts/           sample data generation + loading + reset + preflight
 ├── start.sh / stop.sh   one-command local startup/shutdown (macOS/Linux)
@@ -166,11 +172,12 @@ ad-security-remediation-tracker/
 - Before importing real assessment data: run
   `python3 scripts/local_security_preflight.py` and confirm it prints
   `PASS: Local-only security preflight`.
-- Uploaded CSVs are parsed in memory and never written to disk. Columns
-  that look like credentials/secrets are redacted before anything is
-  persisted (both whole flagged columns and inline `key: value` patterns
-  in free text) — see docs/LOCAL_DATA_SECURITY.md for the exact scope and
-  known limitations.
+- Uploaded JSON/CSV files are parsed in memory and never written to disk.
+  Fields that look like credentials/secrets are redacted before anything is
+  persisted — for CSV this covers flagged columns and inline `key: value`
+  patterns in free text; for JSON the same redaction runs recursively
+  through arbitrarily nested objects/arrays — see docs/LOCAL_DATA_SECURITY.md
+  for the exact scope and known limitations.
 - Reset all local assessment data anytime with
   `python3 scripts/reset_local_data.py --yes` (never touches source code
   or git history). Reseed sanitized demo data with

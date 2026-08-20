@@ -21,10 +21,11 @@ BloodHound.**
 ## Current MVP scope
 
 See [docs/MVP_SCOPE.md](docs/MVP_SCOPE.md) for the full scope and the
-definition of done. Short version: import Pentera CSV assessments, normalize
-findings, score/prioritize them, run them through an owner/status/notes
-remediation workflow and a manual validation workflow, and show risk-reduction
-trends across repeated assessments on a dashboard.
+definition of done. Short version: import Pentera assessments (**JSON
+preferred, CSV also supported, PDF not yet**), normalize findings,
+score/prioritize them, run them through an owner/status/notes remediation
+workflow and a manual validation workflow, and show risk-reduction trends
+across repeated assessments on a dashboard.
 
 ## Technology stack
 
@@ -47,8 +48,10 @@ ad-security-remediation-tracker/          (local folder: ad-sec-tracker)
 │       ├── services/        risk engine, fingerprinting, import orchestration
 │       ├── routers/         FastAPI route modules
 │       └── integrations/
-│           └── pentera/     parser.py / mapper.py / schemas.py
-├── sample-data/          sanitized fake Pentera-style CSVs (2 assessments)
+│           └── pentera/     parser.py (CSV) / json_parser.py (JSON) /
+│                              mapper.py / schemas.py — both parsers feed
+│                              the same mapper.py, unmodified
+├── sample-data/          sanitized fake Pentera-style CSV (2) + JSON (1)
 ├── docs/                 ARCHITECTURE.md, DATA_MODEL.md, PENTERA_IMPORT.md,
 │                          MVP_SCOPE.md, LOCAL_DATA_SECURITY.md
 ├── scripts/               helper scripts (seed sample data, etc.)
@@ -142,7 +145,9 @@ browser origins may call the API — it is not an egress firewall), all
 Docker/uvicorn/Vite host bindings are localhost-only, there are zero
 outbound network integrations anywhere in the codebase (audited — see the
 doc below), uploaded files are never written to disk, and credential-shaped
-CSV columns/fields are redacted before persistence. Full details,
+fields are redacted before persistence — for CSV this covers columns and
+inline free-text patterns; for JSON, `redact_json()` applies the same
+redaction recursively through arbitrarily nested objects/arrays. Full details,
 verification steps, and honestly-stated limitations:
 **[docs/LOCAL_DATA_SECURITY.md](docs/LOCAL_DATA_SECURITY.md)**. Read this
 before importing real Pentera assessment data — it includes the exact
@@ -154,8 +159,12 @@ script to run first.
 1. **A source system's data model must never become the internal data model.**
    Pentera (and any future source) is normalized through
    `integrations/<source>/{parser,mapper,schemas}.py` into the internal
-   `Finding`/`FindingInstance`/`Asset` model. See
-   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+   `Finding`/`FindingInstance`/`Asset` model. Pentera has two format-specific
+   parsers (`parser.py` for CSV, `json_parser.py` for JSON) that both
+   produce the same `RawPenteraRow` shape and feed the same `mapper.py` —
+   format-specific code never leaks past the parser layer. See
+   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+   [docs/PENTERA_IMPORT.md](docs/PENTERA_IMPORT.md).
 2. Routers are thin; business logic (risk scoring, fingerprinting, import
    orchestration, workflow transitions) lives in `app/services/`.
 3. The frontend only talks to the backend via the REST API — no direct DB
@@ -167,7 +176,7 @@ script to run first.
 
 - Primary keys are integer autoincrement `id`.
 - Timestamps: `created_at`/`updated_at` where relevant, UTC.
-- A **Finding** is a persistent logical issue, not one CSV row. A
+- A **Finding** is a persistent logical issue, not one CSV row/JSON object. A
   **FindingInstance** is one observation of a Finding in one Assessment. See
   [docs/DATA_MODEL.md](docs/DATA_MODEL.md) for full field lists.
 - Findings are deduplicated across assessments via a deterministic
@@ -193,9 +202,73 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-20 (sixth checkpoint — one-command startup added)._
+_Last updated: 2026-08-20 (seventh checkpoint — Pentera JSON ingestion added)._
 
-**New this checkpoint**: `start.sh` (macOS/Linux, verified end-to-end
+**New this checkpoint**: Pentera **JSON** import, alongside the existing CSV
+path — JSON is now the preferred format (Pentera's real export for this
+deployment; CSV remains fully supported; PDF still not supported).
+
+- [x] `backend/app/integrations/pentera/json_parser.py` (new): defensive
+      JSON parser — detects the findings collection (top-level array,
+      known-key nested array, or largest-array fallback with a warning),
+      handles nested `asset`/`target`/`host` sub-objects, never silently
+      drops a sibling collection, produces the exact same `RawPenteraRow`
+      shape the CSV parser does.
+- [x] `mapper.py` **unchanged** — both parsers feed it identically, proving
+      the "reuse the same normalized model" requirement in practice, not
+      just in design intent.
+- [x] `import_service.py` refactored: shared `_import_parsed_rows()` core,
+      thin `import_pentera_csv`/`import_pentera_json` wrappers. CSV
+      behavior verified unchanged (same 44 pre-existing tests still pass
+      after the refactor, before any JSON code was added).
+- [x] `services/redaction.py`: new `redact_json()` — recursive redaction
+      through arbitrarily nested dicts/lists, reusing the same
+      header-pattern + inline-pattern logic as CSV. Explicitly covers
+      `nt_hash`/`lm_hash`/`cracked_password`/`credentials` etc. (verified
+      via substring-match on the existing pattern list, no new patterns
+      needed).
+- [x] `routers/imports.py`: single `/imports/pentera` endpoint now accepts
+      `.json` or `.csv`, dispatches by extension. Raw JSON is read into
+      memory and never written to disk — identical to the CSV path.
+      LOCAL_ONLY guarantees unaffected (no new outbound calls introduced).
+- [x] `ImportSummary`/`ImportSummaryOut` gained `unknown_mappings` (count
+      of findings imported as `UNKNOWN` — never discarded solely for being
+      unfamiliar, per the explicit requirement).
+- [x] Frontend: upload control now accepts `.json,.csv`, labeled "Pentera
+      JSON or CSV" (PDF intentionally not enabled), summary card shows
+      Unknown Mappings.
+- [x] Tests: 28 new (20 `test_pentera_json_parser.py` unit tests covering
+      top-level array / nested array / unknown-structure fallback /
+      missing fields / recursive credential redaction / inline secrets /
+      malformed JSON / empty JSON / non-object array elements; 4
+      `test_import_service_json.py` covering cross-import dedup, unknown
+      finding handling, and skip-on-missing-fields at the full
+      import-service level; 4 `test_api_json_import.py` at the router
+      level including a CSV-still-works regression check). **72 total
+      backend tests pass** (44 pre-existing + 28 new), frontend build+lint
+      clean.
+- [x] `scripts/generate_sample_data.py` extended to also emit
+      `sample-data/pentera_assessment_3_2026-09-15.json` — a genuinely
+      JSON-shaped sample (nested `asset` objects, not flattened columns)
+      continuing the same fabrikam.local risk-reduction story, proving
+      cross-format dedup (JSON assessment 3 recognizes CSV assessment 2's
+      recurring findings as the same logical issues).
+      `scripts/load_sample_data.py` now loads all three.
+- [x] Docs updated: README, this file, and especially
+      `docs/PENTERA_IMPORT.md` (new "JSON format handling" section) and
+      `docs/ARCHITECTURE.md` (adapter diagram now shows both parsers
+      converging on the shared mapper).
+- [x] **Explicit, honest limitation stated everywhere it matters** (code
+      docstring, docs/PENTERA_IMPORT.md, README): JSON support is
+      structurally defensive but has **not** been validated against a real
+      sanitized Pentera JSON export — this session had no such sample to
+      work from. Every import's warnings surface when the parser had to
+      guess at structure, so a real-export test will be self-diagnosing if
+      the guesses are wrong.
+
+_Prior checkpoint (sixth) — one-command startup added:_
+
+**New that checkpoint**: `start.sh` (macOS/Linux, verified end-to-end
 multiple times) and `start.ps1` (Windows, written but unverified — no
 Windows/pwsh available in this dev environment) give a single-command
 local startup: tool checks → venv create/reuse → conditional dependency
@@ -432,14 +505,28 @@ python3 scripts/load_sample_data.py http://localhost:8000
 
 **The MVP itself needs no further work to be demoable** — `./start.sh`
 brings it up fully working (backend on :8000, frontend on :5173, sample
-data loadable in one command). Two open items remain, neither blocking:
+data loadable in one command). Three open items remain, none blocking:
 
-1. **Verify `start.ps1`/`stop.ps1` on an actual Windows machine.** Written
+1. **Validate `json_parser.py` against a REAL sanitized Pentera JSON
+   export.** This is the most important of the three — everything about
+   the JSON parser is currently structurally defensive, not
+   schema-verified, because this session had no real export to work from.
+   Next session: get one real sanitized Pentera JSON export (or at minimum
+   its top-level structure + a couple of full sample finding objects with
+   values replaced by placeholders), import it via the UI, read the
+   warnings carefully (they'll say exactly what structure was guessed —
+   e.g. "no standard findings key... used the largest array... review
+   this"), and adjust `FIELD_ALIASES`/`KNOWN_COLLECTION_KEYS`/
+   `ASSET_CONTAINER_KEYS` in `json_parser.py` to match reality. This is a
+   targeted data-driven fix, not a redesign — the pipeline
+   (parser→mapper→import_service) doesn't change regardless of what's
+   found.
+2. **Verify `start.ps1`/`stop.ps1` on an actual Windows machine.** Written
    to mirror `start.sh` exactly, syntax-reviewed carefully, but never
    executed — no Windows/pwsh available in this dev environment. Run it,
    fix whatever breaks (most likely candidates: the `Scripts\` vs `bin/`
    venv path handling, or the `vite.cmd` invocation via `Start-Process`).
-2. **Prove Docker Compose end-to-end** on a host where the Docker engine is
+3. **Prove Docker Compose end-to-end** on a host where the Docker engine is
    actually responsive (`docker info` should return in a few seconds, not
    hang — if it hangs, Docker Desktop's engine is stuck and needs a manual
    restart/reset from its own UI; don't spend more than a couple minutes on
@@ -450,7 +537,8 @@ data loadable in one command). Two open items remain, neither blocking:
    `scripts/load_sample_data.py` against it.
 
 Everything else — backend logic, all APIs, the full frontend, the complete
-demo workflow, and the one-command macOS/Linux startup — is built, tested,
-and has been verified live across multiple sessions. Neither remaining item
-is a "re-verify everything" task, and neither blocks using or demoing the
-product today via `./start.sh`.
+demo workflow, both Pentera import formats' code paths, and the one-command
+macOS/Linux startup — is built, tested, and has been verified live across
+multiple sessions. None of the three remaining items is a "re-verify
+everything" task, and none blocks using or demoing the product today via
+`./start.sh` (with CSV, or with JSON keeping in mind item 1's caveat).

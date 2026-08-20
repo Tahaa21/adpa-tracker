@@ -55,7 +55,7 @@ export default function Assessments() {
       {error && <ErrorState message={error} />}
       {!assessments && !error && <LoadingState />}
       {assessments && assessments.length === 0 && (
-        <EmptyState message="No assessments yet. Click “New Assessment” to upload your first Pentera CSV." />
+        <EmptyState message="No assessments yet. Click “New Assessment” to upload your first Pentera JSON or CSV export." />
       )}
 
       {assessments && assessments.length > 0 && (
@@ -102,10 +102,11 @@ function ImportSummaryCard({ summary }: { summary: ImportSummary }) {
   return (
     <Card className="mb-6 border-emerald-500/30 bg-emerald-500/5">
       <h3 className="mb-3 text-sm font-semibold text-emerald-300">Import complete</h3>
-      <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-5">
-        <Stat label="Rows Processed" value={summary.rows_processed} />
+      <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-6">
+        <Stat label="Records Discovered" value={summary.rows_processed} />
         <Stat label="Imported" value={summary.rows_imported} />
         <Stat label="Skipped" value={summary.rows_skipped} />
+        <Stat label="Unknown Mappings" value={summary.unknown_mappings} />
         <Stat label="New" value={summary.new_findings} />
         <Stat label="Recurring" value={summary.recurring_findings} />
       </div>
@@ -149,7 +150,7 @@ function NewAssessmentForm({ onImported }: { onImported: (s: ImportSummary) => v
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!file) {
-      setError('Select a Pentera CSV file to upload.')
+      setError('Select a Pentera JSON or CSV file to upload.')
       return
     }
     setSubmitting(true)
@@ -172,7 +173,7 @@ function NewAssessmentForm({ onImported }: { onImported: (s: ImportSummary) => v
 
   return (
     <Card>
-      <h3 className="mb-4 text-sm font-semibold text-slate-200">New Assessment — Pentera CSV Upload</h3>
+      <h3 className="mb-4 text-sm font-semibold text-slate-200">New Assessment — Pentera JSON or CSV Upload</h3>
       <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Assessment Name" required>
           <input
@@ -204,14 +205,17 @@ function NewAssessmentForm({ onImported }: { onImported: (s: ImportSummary) => v
           <input value={notes} onChange={(e) => setNotes(e.target.value)} className="input" />
         </Field>
         <div className="md:col-span-2">
-          <Field label="Pentera CSV File" required>
+          <Field label="Pentera JSON or CSV" required>
             <input
               required
               type="file"
-              accept=".csv"
+              accept=".json,.csv"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-200 hover:file:bg-slate-600"
             />
+            <span className="mt-1 block text-xs text-slate-500">
+              JSON is preferred. CSV is also supported. PDF is not yet supported.
+            </span>
           </Field>
         </div>
 

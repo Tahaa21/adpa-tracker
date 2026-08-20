@@ -1,19 +1,51 @@
 # Pentera Import
 
 This is the most important feature of the MVP. It must tolerate real-world
-variance in Pentera CSV exports without crashing, and it must recognize the
-same logical issue across repeated monthly assessments.
+variance in Pentera exports without crashing, and it must recognize the same
+logical issue across repeated monthly assessments.
+
+**JSON is the preferred Pentera format** (matches what Pentera actually
+exports in practice for this deployment). **CSV remains fully supported.**
+**PDF is not yet supported** — do not upload a PDF; the upload control only
+accepts `.json`/`.csv`.
+
+> ⚠️ **Pentera JSON support is structurally defensive but requires
+> validation against a real sanitized Pentera export.** The JSON parser
+> (`json_parser.py`) was built without access to an actual Pentera JSON
+> export — see "JSON format handling" below for exactly what that means in
+> practice and what to do if it guesses wrong on your real export.
 
 ## Pipeline
 
 ```
-Pentera CSV
-    ↓ parser.py    — read file, sniff dialect, produce raw row dicts + warnings
-    ↓ mapper.py     — alias-map columns → NormalizedFinding, classify type/category/severity
-    ↓ schemas.py     — Pydantic shape for the raw + normalized finding
-    ↓ import_service — fingerprint, upsert Asset/Finding, create FindingInstance, score risk
-Application (Finding / FindingInstance)
+Pentera CSV                      Pentera JSON
+    ↓ parser.py                      ↓ json_parser.py
+    (read file, sniff dialect,       (parse JSON, locate the findings
+     produce raw row dicts +          collection defensively, flatten
+     warnings)                        nested asset objects, produce raw
+                                       row dicts + warnings)
+    ↓                                 ↓
+    └──────────────┬──────────────────┘
+                    ↓
+              mapper.py        — alias-map fields → NormalizedFinding,
+                                  classify type/category/severity
+                    ↓
+              schemas.py        — Pydantic shape for the raw + normalized finding
+                    ↓
+              import_service    — fingerprint, upsert Asset/Finding,
+                                  create FindingInstance, score risk
+                    ↓
+     Application (Finding / FindingInstance)
 ```
+
+Both formats produce the exact same `RawPenteraRow` shape and are fed into
+the exact same `mapper.map_rows()` and `import_service._import_parsed_rows()`
+— risk scoring, deduplication/fingerprinting, the remediation workflow, and
+trend tracking are **entirely shared** and unmodified between CSV and JSON.
+Only the parsing step (`parser.py` vs `json_parser.py`) differs. The
+`POST /imports/pentera` endpoint dispatches between them by file extension
+automatically — the frontend upload control is a single "Pentera JSON or
+CSV" field, not two separate ones.
 
 ## Column tolerance strategy (`parser.py` + `mapper.py`)
 
@@ -55,7 +87,72 @@ so nothing is silently lost even if the parser doesn't understand it.
   hard failure.
 
 Import always returns: `rows_processed`, `rows_imported`, `rows_skipped`,
-and a `warnings: string[]` list.
+`unknown_mappings`, and a `warnings: string[]` list.
+
+## JSON format handling (`json_parser.py`)
+
+Real Pentera JSON structure is not something we've had access to validate
+against — this parser is written defensively rather than against a known
+schema, and is honest about that in its own module docstring, in every
+import's warnings when it has to guess, and here.
+
+**Finding-collection detection.** A Pentera JSON export could plausibly be:
+a bare top-level array of finding objects; an object with the findings
+under a common key (`findings`, `results`, `vulnerabilities`, `issues`,
+`items`, `records`, `data`, `modules`, `checks`, `detections`, `risks`); or
+something else entirely. The parser tries, in order:
+1. Top-level array → treated as the findings directly.
+2. An object with one of the known key names above, at any nesting depth,
+   holding an array of objects → that array is used.
+3. If neither matches: the **largest** array-of-objects found anywhere in
+   the structure is used as a last resort, **with a warning** telling you
+   exactly which key path was chosen and how many items it had — so this
+   guess is always visible, never silent.
+4. If nothing even remotely plausible exists anywhere in the structure →
+   the whole import is rejected (`ParseError`), same as CSV's "no
+   recognizable title/asset column" case.
+
+**Never silently drops a section.** If another substantial array-of-objects
+exists in the JSON alongside the one chosen as findings (e.g. a separate
+`assets` or `modules` collection), a warning names it and its size so you
+can check whether it should have been included instead/also.
+
+**Field aliasing.** Same alias-table philosophy as CSV (see above), adapted
+for JSON key naming — `"Finding Name"`, `finding_name`, and `findingName`
+all normalize identically. See `FIELD_ALIASES` in `json_parser.py` for the
+exact list.
+
+**Nested asset objects.** Structured exports commonly represent the
+affected asset as its own nested object rather than flat fields, e.g.
+`{"finding": "...", "asset": {"name": "DC01", "type": "computer"}}`. The
+parser looks for a sub-object under a container-like key (`asset`,
+`target`, `host`, `object`, `entity`, `affected_asset`) and prefers its
+`name`/`type`/`domain`/identifier-shaped fields over anything at the
+finding's own top level.
+
+**Unknown/unmapped fields are never discarded.** Every finding's complete
+original JSON object is preserved (redacted, see below) as the audit-trail
+raw copy, and any top-level key not consumed by field mapping is preserved
+separately in `source_metadata.unmapped_fields` — exactly like CSV's
+unmapped columns.
+
+**Credential redaction, recursively.** `services/redaction.py`'s
+`redact_json()` walks the entire nested structure — dicts, lists, any
+depth — redacting any key that looks like a credential/secret (`password`,
+`passwd`, `pwd`, `secret`, `credential`/`credentials`, `token`, `hash`,
+`ntlm`, `nt_hash`, `lm_hash`, `cracked_password`, `cleartext`, `plaintext`,
+`evidence`, etc. — matched via the same normalized-key comparison as CSV
+headers) before anything is persisted, and additionally scans surviving
+string values for inline `key: value`/`key=value` patterns. This applies
+uniformly regardless of where in the structure a credential-shaped key
+appears, not just at the top level of a finding object.
+
+**If your real Pentera JSON export doesn't match these assumptions:** tell
+us (a) the real top-level structure/key names, (b) a couple of full sample
+finding objects with real values replaced by placeholders, and (c) any
+field-naming differences from the alias table above. That's a targeted,
+low-risk change to `FIELD_ALIASES`/`KNOWN_COLLECTION_KEYS`/
+`ASSET_CONTAINER_KEYS` in `json_parser.py` — not a redesign.
 
 ## Normalization mapping (`mapper.py`)
 
@@ -130,7 +227,8 @@ observed".
 
 ## Import summary contract
 
-`POST /imports/pentera` returns:
+`POST /imports/pentera` accepts a `.json` or `.csv` file (dispatched by
+extension) and returns, identically for either format:
 
 ```json
 {
@@ -140,10 +238,17 @@ observed".
   "rows_skipped": 2,
   "warnings": [
     "Row 14: missing finding title, skipped",
-    "Row 37: unrecognized asset type 'container', defaulted to 'unknown'"
+    "Row 37: unrecognized asset type 'container', defaulted to 'unknown'",
+    "Findings collection identified at: findings (52 item(s))."
   ],
+  "unknown_mappings": 4,
   "new_findings": 12,
   "recurring_findings": 38,
   "resolved_findings": 6
 }
 ```
+
+`unknown_mappings` is the count of findings imported with
+`normalized_type = UNKNOWN` — i.e. the classifier didn't recognize the
+finding title/type, but it was imported anyway (never discarded solely for
+being unfamiliar), with the original title preserved.

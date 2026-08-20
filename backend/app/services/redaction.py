@@ -91,6 +91,44 @@ def redact_row(raw: dict[str, str]) -> dict[str, str]:
     return redacted
 
 
+def redact_json(value: object) -> object:
+    """Recursively redact a parsed-JSON value (dict/list/scalar) before it is
+    ever persisted (Pentera JSON's raw finding objects and any nested
+    "unmapped" sub-structures). Two passes, applied at every nesting depth:
+
+    1. For a dict, any KEY matching a sensitive pattern (password, secret,
+       credential, hash, ntlm, nt_hash, lm_hash, cracked_password,
+       cleartext, plaintext, token, etc. — see SENSITIVE_HEADER_PATTERNS,
+       matched via the same normalized-key comparison used for CSV headers)
+       has its entire value replaced with the fixed marker, regardless of
+       whether that value is a scalar, a nested object, or an array —
+       a nested `{"credentials": {"username": "x", "password": "y"}}` is
+       fully redacted at the `credentials` key, not just the `password`
+       leaf, since the whole sub-tree is presumed sensitive once the key
+       itself says so.
+    2. Any surviving string value (leaf or otherwise) is scanned for an
+       inline "key: value" / "key=value" credential pattern, same as the
+       CSV path's free-text handling.
+
+    Recurses through dicts and lists to arbitrary depth. Non-dict/list/str
+    values (int, float, bool, None) pass through unchanged.
+    """
+    if isinstance(value, dict):
+        redacted: dict[str, object] = {}
+        for key, sub_value in value.items():
+            key_str = key if isinstance(key, str) else str(key)
+            if is_sensitive_header(key_str) and sub_value not in (None, "", {}, []):
+                redacted[key] = REDACTED_MARKER
+            else:
+                redacted[key] = redact_json(sub_value)
+        return redacted
+    if isinstance(value, list):
+        return [redact_json(item) for item in value]
+    if isinstance(value, str):
+        return redact_inline_credentials(value)
+    return value
+
+
 def redact_inline_credentials(text: str | None) -> str | None:
     """Redact "key: value" / "key=value" credential patterns embedded in
     free text (e.g. a Description or Recommendation column). Only the value

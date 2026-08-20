@@ -1,7 +1,9 @@
-"""Orchestrates a Pentera CSV import end-to-end.
+"""Orchestrates a Pentera CSV or JSON import end-to-end.
 
-Pentera CSV -> parser -> mapper -> (fingerprint, Asset/Finding upsert,
-FindingInstance creation, risk scoring) -> Assessment summary.
+Pentera CSV/JSON -> format-specific parser -> mapper -> (fingerprint,
+Asset/Finding upsert, FindingInstance creation, risk scoring) -> Assessment
+summary. Both formats share the exact same mapper and downstream logic
+(_import_parsed_rows) — only the parsing step differs.
 
 This is the only place in the application that imports from
 `app.integrations.pentera` — everything downstream (routers, dashboard,
@@ -13,9 +15,9 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.core.logging_config import get_logger
-from app.integrations.pentera import mapper, parser
+from app.integrations.pentera import json_parser, mapper, parser
 from app.integrations.pentera.parser import ParseError
-from app.integrations.pentera.schemas import NormalizedFinding
+from app.integrations.pentera.schemas import NormalizedFinding, RawPenteraRow
 from app.models.asset import Asset
 from app.models.assessment import Assessment
 from app.models.finding import Finding
@@ -35,6 +37,7 @@ class ImportSummary:
     rows_imported: int = 0
     rows_skipped: int = 0
     warnings: list[str] = field(default_factory=list)
+    unknown_mappings: int = 0
     new_findings: int = 0
     recurring_findings: int = 0
     resolved_findings: int = 0
@@ -127,16 +130,81 @@ def import_pentera_csv(
     source_filename: str | None,
     notes: str | None,
 ) -> ImportSummary:
-    log.info("Pentera import started: file_size_bytes=%d", len(content))
+    log.info("Pentera CSV import started: file_size_bytes=%d", len(content))
 
     try:
         raw_rows, parse_warnings = parser.parse_csv(content)
     except ParseError as exc:
-        log.warning("Pentera import failed at parse stage: %s", type(exc).__name__)
+        log.warning("Pentera CSV import failed at parse stage: %s", type(exc).__name__)
         raise
 
+    return _import_parsed_rows(
+        db,
+        raw_rows,
+        parse_warnings,
+        name=name,
+        assessment_date=assessment_date,
+        environment=environment,
+        source_filename=source_filename,
+        notes=notes,
+    )
+
+
+def import_pentera_json(
+    db: Session,
+    content: bytes,
+    *,
+    name: str,
+    assessment_date: date,
+    environment: str | None,
+    source_filename: str | None,
+    notes: str | None,
+) -> ImportSummary:
+    """Same contract as import_pentera_csv, for a Pentera JSON export.
+
+    See json_parser.py's module docstring: structurally defensive, not yet
+    validated against a real Pentera JSON export.
+    """
+    log.info("Pentera JSON import started: file_size_bytes=%d", len(content))
+
+    try:
+        raw_rows, parse_warnings = json_parser.parse_json(content)
+    except ParseError as exc:
+        log.warning("Pentera JSON import failed at parse stage: %s", type(exc).__name__)
+        raise
+
+    return _import_parsed_rows(
+        db,
+        raw_rows,
+        parse_warnings,
+        name=name,
+        assessment_date=assessment_date,
+        environment=environment,
+        source_filename=source_filename,
+        notes=notes,
+    )
+
+
+def _import_parsed_rows(
+    db: Session,
+    raw_rows: list[RawPenteraRow],
+    parse_warnings: list[str],
+    *,
+    name: str,
+    assessment_date: date,
+    environment: str | None,
+    source_filename: str | None,
+    notes: str | None,
+) -> ImportSummary:
+    """Shared core for both CSV and JSON imports, starting from the same
+    RawPenteraRow shape either parser produces: mapper -> fingerprint ->
+    Asset/Finding upsert -> FindingInstance -> risk scoring -> Assessment
+    summary. This is the ONLY place that logic lives — CSV and JSON never
+    diverge past this point.
+    """
     result = mapper.map_rows(raw_rows)
     warnings = parse_warnings + result.warnings
+    unknown_count = sum(1 for nf in result.findings if nf.normalized_type == "UNKNOWN")
 
     assessment = Assessment(
         name=name,
@@ -235,12 +303,13 @@ def import_pentera_csv(
 
     log.info(
         "Pentera import completed: assessment_id=%d rows_processed=%d rows_imported=%d "
-        "rows_skipped=%d warnings=%d new=%d recurring=%d resolved=%d",
+        "rows_skipped=%d warnings=%d unknown=%d new=%d recurring=%d resolved=%d",
         assessment.id,
         result.rows_processed,
         len(result.findings),
         result.rows_skipped,
         len(warnings),
+        unknown_count,
         new_count,
         recurring_count,
         resolved_count,
@@ -252,6 +321,7 @@ def import_pentera_csv(
         rows_imported=len(result.findings),
         rows_skipped=result.rows_skipped,
         warnings=warnings,
+        unknown_mappings=unknown_count,
         new_findings=new_count,
         recurring_findings=recurring_count,
         resolved_findings=resolved_count,

@@ -127,6 +127,7 @@ export interface ImportSummary {
   rows_imported: number
   rows_skipped: number
   warnings: string[]
+  unknown_mappings: number
   new_findings: number
   recurring_findings: number
   resolved_findings: number

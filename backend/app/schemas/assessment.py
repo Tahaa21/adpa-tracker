@@ -27,6 +27,7 @@ class ImportSummaryOut(BaseModel):
     rows_imported: int
     rows_skipped: int
     warnings: list[str]
+    unknown_mappings: int = 0
     new_findings: int
     recurring_findings: int
     resolved_findings: int

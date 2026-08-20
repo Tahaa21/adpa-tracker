@@ -8,17 +8,19 @@ from app.core.config import get_settings
 from app.core.db import get_db
 from app.integrations.pentera.parser import ParseError
 from app.schemas.assessment import ImportSummaryOut
-from app.services.import_service import import_pentera_csv
+from app.services.import_service import import_pentera_csv, import_pentera_json
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
 settings = get_settings()
 
+SUPPORTED_EXTENSIONS = (".csv", ".json")
+
 
 def _sanitize_filename(filename: str) -> str:
     filename = filename.strip().replace("\\", "/").split("/")[-1]
     filename = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
-    return filename[:255] or "upload.csv"
+    return filename[:255] or "upload"
 
 
 @router.post("/pentera", response_model=ImportSummaryOut)
@@ -30,8 +32,13 @@ async def import_pentera(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only .csv files are supported.")
+    filename_lower = (file.filename or "").lower()
+    if not filename_lower.endswith(SUPPORTED_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail="Only .json or .csv files are supported (Pentera JSON or CSV export).",
+        )
+    is_json = filename_lower.endswith(".json")
 
     content = await file.read()
     if len(content) > settings.max_upload_size_bytes:
@@ -44,8 +51,9 @@ async def import_pentera(
 
     safe_filename = _sanitize_filename(file.filename)
 
+    import_fn = import_pentera_json if is_json else import_pentera_csv
     try:
-        summary = import_pentera_csv(
+        summary = import_fn(
             db,
             content,
             name=name,

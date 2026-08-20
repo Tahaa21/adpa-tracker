@@ -1,0 +1,512 @@
+{
+  "scan_metadata": {
+    "tool": "Pentera",
+    "assessment_name": "Fabrikam AD Assessment - September 2026"
+  },
+  "findings": [
+    {
+      "finding": "Privileged Group Membership",
+      "severity": "High",
+      "asset": {
+        "name": "mchen",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "User account is a member of the Backup Operators group.",
+      "recommendation": "Review necessity of Backup Operators membership; remove if not required.",
+      "exploitable": false
+    },
+    {
+      "finding": "Privileged Group Membership",
+      "severity": "High",
+      "asset": {
+        "name": "tward",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "User account is a member of the Account Operators group.",
+      "recommendation": "Review necessity of Account Operators membership; remove if not required.",
+      "exploitable": false
+    },
+    {
+      "finding": "Privileged Group Membership",
+      "severity": "Medium",
+      "asset": {
+        "name": "efoster",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "User account is a member of the Server Operators group.",
+      "recommendation": "Review necessity of Server Operators membership; remove if not required.",
+      "exploitable": false
+    },
+    {
+      "finding": "Privileged Group Membership",
+      "severity": "Low",
+      "asset": {
+        "name": "hpatel",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "User account is a member of the Print Operators group.",
+      "recommendation": "Review necessity of Print Operators membership; remove if not required.",
+      "exploitable": false
+    },
+    {
+      "finding": "Dormant Privileged Account",
+      "severity": "Medium",
+      "asset": {
+        "name": "temp_admin2",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Privileged account has not authenticated in over 180 days.",
+      "recommendation": "Disable or remove the dormant privileged account.",
+      "exploitable": false
+    },
+    {
+      "finding": "Dormant Privileged Account",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_old_backup",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Privileged service account has not authenticated in over 180 days.",
+      "recommendation": "Disable or remove the dormant privileged account.",
+      "exploitable": false
+    },
+    {
+      "finding": "Dormant Privileged Account",
+      "severity": "High",
+      "asset": {
+        "name": "jold_admin",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Privileged account has not authenticated in over 180 days.",
+      "recommendation": "Disable or remove the dormant privileged account.",
+      "exploitable": false
+    },
+    {
+      "finding": "ACL Abuse",
+      "severity": "Medium",
+      "asset": {
+        "name": "Default Domain Policy",
+        "type": "policy",
+        "domain": "fabrikam.local"
+      },
+      "description": "Weak DACL allows unauthorized GPO edits.",
+      "recommendation": "Restrict GPO edit rights to Domain Admins / delegated GPO admins only.",
+      "exploitable": false
+    },
+    {
+      "finding": "Delegation Risk",
+      "severity": "Medium",
+      "asset": {
+        "name": "APP03",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "Computer object is trusted for unconstrained delegation.",
+      "recommendation": "Convert to constrained delegation or remove delegation entirely.",
+      "exploitable": false
+    },
+    {
+      "finding": "Delegation Risk",
+      "severity": "Low",
+      "asset": {
+        "name": "FS02",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "Computer object has broad constrained delegation rights.",
+      "recommendation": "Narrow the constrained delegation target list.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Not Required",
+      "severity": "High",
+      "asset": {
+        "name": "svc_backup",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "PASSWD_NOTREQD flag is set on the account.",
+      "recommendation": "Clear the PASSWD_NOTREQD flag and set a strong password.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Not Required",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_ftp",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "PASSWD_NOTREQD flag is set on the account.",
+      "recommendation": "Clear the PASSWD_NOTREQD flag and set a strong password.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Not Required",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_legacy2",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "PASSWD_NOTREQD flag is set on the account.",
+      "recommendation": "Clear the PASSWD_NOTREQD flag and set a strong password.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Never Expires",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_sql",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Account password is configured to never expire.",
+      "recommendation": "Enable password expiration or move to a managed service account (gMSA).",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Never Expires",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_web01",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Account password is configured to never expire.",
+      "recommendation": "Enable password expiration or move to a managed service account (gMSA).",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Never Expires",
+      "severity": "Low",
+      "asset": {
+        "name": "kwilliams",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Account password is configured to never expire.",
+      "recommendation": "Enable standard password expiration policy for this account.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Never Expires",
+      "severity": "Low",
+      "asset": {
+        "name": "svc_print",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Account password is configured to never expire.",
+      "recommendation": "Enable password expiration or move to a managed service account (gMSA).",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Reuse",
+      "severity": "Medium",
+      "asset": {
+        "name": "dthompson",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password matches a password used elsewhere in the assessed environment.",
+      "recommendation": "Force a password reset and enforce unique passwords.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Reuse",
+      "severity": "Medium",
+      "asset": {
+        "name": "rlee",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password matches a password used elsewhere in the assessed environment.",
+      "recommendation": "Force a password reset and enforce unique passwords.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Reuse",
+      "severity": "Low",
+      "asset": {
+        "name": "nkim",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password matches a password used elsewhere in the assessed environment.",
+      "recommendation": "Force a password reset and enforce unique passwords.",
+      "exploitable": false
+    },
+    {
+      "finding": "Weak Password",
+      "severity": "Medium",
+      "asset": {
+        "name": "jbrown",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password was cracked by the assessment engine in under one hour.",
+      "recommendation": "Rotate the password and enforce a stronger password policy.",
+      "exploitable": true
+    },
+    {
+      "finding": "Weak Password",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_monitor",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password was cracked by the assessment engine in under one hour.",
+      "recommendation": "Rotate the password and enforce a stronger password policy.",
+      "exploitable": false
+    },
+    {
+      "finding": "Weak Password",
+      "severity": "Low",
+      "asset": {
+        "name": "svc_archive",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password was cracked by the assessment engine in under one hour.",
+      "recommendation": "Rotate the password and enforce a stronger password policy.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Policy Weakness",
+      "severity": "Medium",
+      "asset": {
+        "name": "fabrikam.local",
+        "type": "domain",
+        "domain": "fabrikam.local"
+      },
+      "description": "Default domain password policy allows short, non-complex passwords.",
+      "recommendation": "Raise minimum length and enable complexity requirements domain-wide.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Policy Weakness",
+      "severity": "Low",
+      "asset": {
+        "name": "Contractors PSO",
+        "type": "policy",
+        "domain": "fabrikam.local"
+      },
+      "description": "Fine-grained password policy for contractors is weaker than default.",
+      "recommendation": "Align the fine-grained policy with the domain baseline.",
+      "exploitable": false
+    },
+    {
+      "finding": "Service Account Risk",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_backup",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Service account has interactive logon rights it does not require.",
+      "recommendation": "Remove interactive logon rights; restrict to service logon only.",
+      "exploitable": false
+    },
+    {
+      "finding": "Service Account Risk",
+      "severity": "High",
+      "asset": {
+        "name": "svc_deploy",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Service account has excessive rights across multiple servers.",
+      "recommendation": "Scope the account's rights to only the systems it needs.",
+      "exploitable": false
+    },
+    {
+      "finding": "Service Account Risk",
+      "severity": "Medium",
+      "asset": {
+        "name": "svc_scanner",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Service account credentials are shared across multiple scheduled tasks.",
+      "recommendation": "Issue dedicated credentials per task; avoid credential sharing.",
+      "exploitable": false
+    },
+    {
+      "finding": "Service Account Risk",
+      "severity": "Low",
+      "asset": {
+        "name": "svc_helpdesk",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Service account has more file share access than its function requires.",
+      "recommendation": "Right-size file share ACLs for this account.",
+      "exploitable": false
+    },
+    {
+      "finding": "Trust Risk",
+      "severity": "Medium",
+      "asset": {
+        "name": "partner.local",
+        "type": "domain",
+        "domain": "fabrikam.local"
+      },
+      "description": "External trust to partner.local is configured without SID filtering.",
+      "recommendation": "Enable SID filtering / quarantine on the external trust.",
+      "exploitable": false
+    },
+    {
+      "finding": "Trust Risk",
+      "severity": "Low",
+      "asset": {
+        "name": "vendor.local",
+        "type": "domain",
+        "domain": "fabrikam.local"
+      },
+      "description": "Forest trust to vendor.local allows broader authentication scope than required.",
+      "recommendation": "Scope authentication on the trust to only the required resources.",
+      "exploitable": false
+    },
+    {
+      "finding": "Anonymous LDAP Bind Enabled",
+      "severity": "Medium",
+      "asset": {
+        "name": "DC01",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "Domain controller allows anonymous LDAP binds.",
+      "recommendation": "Disable anonymous LDAP binds via dsHeuristics.",
+      "exploitable": false
+    },
+    {
+      "finding": "Anonymous LDAP Bind Enabled",
+      "severity": "Medium",
+      "asset": {
+        "name": "DC02",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "Domain controller allows anonymous LDAP binds.",
+      "recommendation": "Disable anonymous LDAP binds via dsHeuristics.",
+      "exploitable": false
+    },
+    {
+      "finding": "SMB Signing Not Required",
+      "severity": "Low",
+      "asset": {
+        "name": "WKS-118",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "SMB signing is not enforced, enabling relay attacks.",
+      "recommendation": "Enforce SMB signing via Group Policy.",
+      "exploitable": false
+    },
+    {
+      "finding": "Null Session Enabled",
+      "severity": "Low",
+      "asset": {
+        "name": "FS01",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "Null sessions are permitted, allowing anonymous enumeration.",
+      "recommendation": "Restrict anonymous access via RestrictAnonymous registry policy.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Never Expires",
+      "severity": "Low",
+      "asset": {
+        "name": "svc_newapp",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Account password is configured to never expire.",
+      "recommendation": "Enable password expiration or move to a managed service account (gMSA).",
+      "exploitable": false
+    },
+    {
+      "finding": "Weak Password",
+      "severity": "Medium",
+      "asset": {
+        "name": "efoster",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password was cracked by the assessment engine in under one hour.",
+      "recommendation": "Rotate the password and enforce a stronger password policy.",
+      "exploitable": false
+    },
+    {
+      "finding": "Privileged Group Membership",
+      "severity": "Medium",
+      "asset": {
+        "name": "jcarter",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "User account is a member of the Backup Operators group.",
+      "recommendation": "Review necessity of Backup Operators membership; remove if not required.",
+      "exploitable": false
+    },
+    {
+      "finding": "Service Account Risk",
+      "severity": "Low",
+      "asset": {
+        "name": "svc_reporting2",
+        "type": "service_account",
+        "domain": "fabrikam.local"
+      },
+      "description": "Service account has more file share access than its function requires.",
+      "recommendation": "Right-size file share ACLs for this account.",
+      "exploitable": false
+    },
+    {
+      "finding": "Anonymous LDAP Bind Enabled",
+      "severity": "Low",
+      "asset": {
+        "name": "DC03",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "Domain controller allows anonymous LDAP binds.",
+      "recommendation": "Disable anonymous LDAP binds via dsHeuristics.",
+      "exploitable": false
+    },
+    {
+      "finding": "Password Reuse",
+      "severity": "Low",
+      "asset": {
+        "name": "ghall",
+        "type": "user",
+        "domain": "fabrikam.local"
+      },
+      "description": "Password matches a password used elsewhere in the assessed environment.",
+      "recommendation": "Force a password reset and enforce unique passwords.",
+      "exploitable": false
+    },
+    {
+      "finding": "SMB Signing Not Required",
+      "severity": "Low",
+      "asset": {
+        "name": "WKS-231",
+        "type": "computer",
+        "domain": "fabrikam.local"
+      },
+      "description": "SMB signing is not enforced, enabling relay attacks.",
+      "recommendation": "Enforce SMB signing via Group Policy.",
+      "exploitable": false
+    }
+  ]
+}

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Loads the two sample Pentera assessments into a running backend via the API.
+"""Loads the three sample Pentera assessments (2 CSV, 1 JSON) into a running
+backend via the API — demonstrating both supported formats, including
+cross-format deduplication (assessment 3's JSON findings recognize several
+of assessment 2's CSV findings as the same logical issue).
 
 Usage:
     python3 scripts/load_sample_data.py [API_BASE_URL]
@@ -31,6 +34,13 @@ ASSESSMENTS = [
         "environment": "fabrikam.local",
         "notes": "Follow-up assessment after initial remediation push.",
     },
+    {
+        "file": "pentera_assessment_3_2026-09-15.json",
+        "name": "Fabrikam AD Assessment - September 2026",
+        "assessment_date": "2026-09-15",
+        "environment": "fabrikam.local",
+        "notes": "Third assessment, delivered as a Pentera JSON export.",
+    },
 ]
 
 
@@ -43,7 +53,7 @@ def multipart_request(url: str, fields: dict, file_field: str, file_path: Path):
         lines.append(b"")
         lines.append(str(value).encode())
 
-    content_type = mimetypes.guess_type(file_path.name)[0] or "text/csv"
+    content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
     lines.append(f"--{boundary}".encode())
     lines.append(
         f'Content-Disposition: form-data; name="{file_field}"; filename="{file_path.name}"'.encode()

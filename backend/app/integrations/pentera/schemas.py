@@ -4,11 +4,22 @@ These are internal to the pentera adapter — the rest of the application only
 ever sees the internal Finding/FindingInstance models built from
 NormalizedFinding by services/import_service.py.
 """
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class RawPenteraRow(BaseModel):
-    """A single parsed CSV row, aliases already resolved where possible."""
+    """A single parsed finding, aliases already resolved where possible.
+
+    Produced by either parser.py (CSV) or json_parser.py (JSON) — both
+    produce this exact same shape so mapper.py's map_rows() is shared,
+    unmodified, between formats. `unmapped_fields`/`raw` are `dict[str, Any]`
+    (not `dict[str, str]`) specifically so the JSON parser can preserve
+    nested objects/arrays verbatim rather than flattening them to strings;
+    the CSV parser's plain string values are equally valid under this wider
+    type, so this is backward compatible.
+    """
 
     row_number: int
     title: str | None = None
@@ -21,8 +32,8 @@ class RawPenteraRow(BaseModel):
     category: str | None = None
     identifier: str | None = None
     exploitable: str | None = None
-    unmapped_fields: dict[str, str] = Field(default_factory=dict)
-    raw: dict[str, str] = Field(default_factory=dict)
+    unmapped_fields: dict[str, Any] = Field(default_factory=dict)
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class NormalizedFinding(BaseModel):
