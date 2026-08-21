@@ -244,18 +244,82 @@ discards the bytes — confirmed by code inspection (no file-write or
 sanitized **filename** (not the content) is stored on the `Assessment`
 record, for display purposes.
 
+## Upload size limit
+
+Controlled by exactly one setting: `MAX_UPLOAD_SIZE_MB` (default **100**,
+i.e. 104,857,600 bytes / 100 MiB), read once into
+`Settings.max_upload_size_bytes` (`backend/app/core/config.py`) and
+enforced in exactly one place (`routers/imports.py`), for both `.json` and
+`.csv` uploads identically — there is no separate or duplicated limit
+anywhere else in the frontend or backend. The comparison is against the
+**actual bytes read**, never `Content-Length` or any other header. A file
+of exactly 100 MiB is accepted; only a file one byte over is rejected,
+with a response naming the exact detected and maximum byte counts (never
+file contents):
+
+```
+Upload rejected: detected 104857601 bytes; maximum 104857600 bytes.
+```
+
+The same two numbers are logged locally (see "Logging" below) — nothing
+else about the upload is logged on rejection.
+
+### Guaranteed restart procedure
+
+**Editing `.env` alone does not change a running backend's behavior.**
+`get_settings()` is cached for the lifetime of the process — a backend
+that was already running when you edit `MAX_UPLOAD_SIZE_MB` (or pull new
+code) keeps using whatever value it read at startup until it is actually
+killed and restarted. This matters especially because **`.env` is
+git-ignored** — `git pull` never touches your local copy, so a `.env`
+created early in this project's life can silently keep an old value
+forever regardless of what changes upstream. If uploads are still being
+rejected at a size that shouldn't be, do this, in order, every time:
+
+```bash
+# 1. Stop everything definitively (frees ports even if a prior run didn't
+#    shut down cleanly; harmless if nothing was running).
+./stop.sh
+
+# 2. Pull the latest code.
+git pull
+
+# 3. Confirm your local .env has the value you expect (this file is
+#    git-ignored — pulling never changes it). If MAX_UPLOAD_SIZE_MB is
+#    missing entirely, the code default (100) applies; if it's present
+#    with an old/wrong number, edit it by hand.
+grep MAX_UPLOAD_SIZE_MB .env 2>/dev/null || echo "not set in .env — using code default"
+
+# 4. Start fresh — start.sh always launches new backend/frontend
+#    processes, so this alone guarantees you're not running stale code
+#    *if* step 1 actually stopped the old ones first.
+./start.sh
+```
+
+To directly confirm which value a freshly-started backend is actually
+using (bypasses guesswork entirely — inspects configuration only, never
+assessment data):
+
+```bash
+cd backend && source venv/bin/activate
+python3 -c "from app.core.config import Settings; print(Settings().max_upload_size_bytes)"
+# Expect: 104857600
+```
+
 ## Logging
 
 `backend/app/core/logging_config.py` configures a local-only logger:
 console (visible in the `uvicorn` terminal) + a local file at
 `backend/logs/app.log` (git-ignored). No remote log handler exists.
 
-What gets logged, exactly (from `services/import_service.py`):
+What gets logged, exactly (from `services/import_service.py` and
+`routers/imports.py`):
 ```
 Pentera import started: file_size_bytes=<N>
 Pentera import completed: assessment_id=<N> rows_processed=<N> rows_imported=<N>
     rows_skipped=<N> warnings=<N> new=<N> recurring=<N> resolved=<N>
 Pentera import failed at parse stage: <ExceptionClassName>
+Pentera upload rejected: detected_bytes=<N> max_bytes=<N>
 ```
 That is the entirety of what this application logs. No raw CSV rows, no
 usernames, no domains, no IPs, no credentials, no finding titles/metadata,

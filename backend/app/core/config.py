@@ -31,7 +31,10 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./app.db"
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
-    max_upload_size_mb: int = 10
+    # THE authoritative upload-size limit — every other layer (frontend,
+    # error messages, tests) derives from this one value. Do not duplicate
+    # the number elsewhere; read max_upload_size_bytes below instead.
+    max_upload_size_mb: int = 100
 
     # Application-level local-only safeguard. See module docstring for what
     # this does and does not guarantee. Default TRUE.
@@ -50,13 +53,13 @@ class Settings(BaseSettings):
 
     @property
     def max_upload_size_bytes(self) -> int:
-        # MiB, not decimal MB: 10 * 1024 * 1024 = 10,485,760 bytes.
+        # MiB, not decimal MB: e.g. 100 * 1024 * 1024 = 104,857,600 bytes.
         # Pinned by a test (test_upload_size_limit.py) so a future edit
         # that drops one `* 1024` (KB instead of MiB — an easy typo that
-        # would silently shrink the real limit to ~10 KB) fails loudly.
-        # The comparison at the call site (routers/imports.py) is strict
-        # `>`, so a file of exactly this many bytes is accepted, not
-        # rejected — "10 MB max" means "up to and including 10 MiB".
+        # would silently shrink the real limit by a factor of 1024) fails
+        # loudly. The comparison at the call site (routers/imports.py) is
+        # strict `>`, so a file of exactly this many bytes is accepted,
+        # not rejected — "N MB max" means "up to and including N MiB".
         return self.max_upload_size_mb * 1024 * 1024
 
 
