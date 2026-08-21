@@ -111,6 +111,13 @@ function ImportSummaryCard({ summary }: { summary: ImportSummary }) {
         <Stat label="New" value={summary.new_findings} />
         <Stat label="Recurring" value={summary.recurring_findings} />
       </div>
+      {(summary.achievements_discovered > 0 || summary.vulnerabilities_discovered > 0) && (
+        <div className="mt-4 grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
+          <Stat label="Achievements Discovered" value={summary.achievements_discovered} />
+          <Stat label="Vulnerabilities Discovered" value={summary.vulnerabilities_discovered} />
+          <Stat label="Remediation Findings Created" value={summary.remediation_findings_created} />
+        </div>
+      )}
       {summary.warnings.length > 0 && (
         <div className="mt-4">
           <div className="text-xs font-medium text-amber-400">Warnings ({summary.warnings.length})</div>

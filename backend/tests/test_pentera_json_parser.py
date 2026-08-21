@@ -20,7 +20,7 @@ def test_top_level_array_of_findings():
         {"finding": "Password Not Required", "target": "svc_backup", "objectType": "service_account", "domain": "corp.local"},
         {"finding": "Domain Admin Membership", "target": "jsmith", "objectType": "user", "domain": "corp.local"},
     ]
-    rows, warnings = parse_json(_bytes(data))
+    rows, warnings, _ = parse_json(_bytes(data))
     assert len(rows) == 2
     assert rows[0].title == "Password Not Required"
     assert rows[0].asset_name == "svc_backup"
@@ -42,7 +42,7 @@ def test_nested_findings_array_under_known_key():
             {"title": "Weak Password", "asset": "administrator", "assetType": "user", "domain": "fabrikam.local"},
         ],
     }
-    rows, warnings = parse_json(_bytes(data))
+    rows, warnings, _ = parse_json(_bytes(data))
     assert len(rows) == 1
     assert rows[0].title == "Weak Password"
     assert rows[0].asset_name == "administrator"
@@ -56,7 +56,7 @@ def test_nested_findings_array_under_results_key_deeper():
         "meta": {"tool": "Pentera"},
         "report": {"results": [{"finding": "Trust Risk", "target": "partner.local", "domain": "fabrikam.local"}]},
     }
-    rows, warnings = parse_json(_bytes(data))
+    rows, warnings, _ = parse_json(_bytes(data))
     assert len(rows) == 1
     assert rows[0].title == "Trust Risk"
 
@@ -72,7 +72,7 @@ def test_nested_asset_object_preferred_over_top_level():
             "severity": "High",
         }
     ]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     assert rows[0].asset_name == "SQL01"
     assert rows[0].asset_type == "computer"
     assert rows[0].domain == "fabrikam.local"
@@ -90,7 +90,7 @@ def test_unknown_nested_structure_falls_back_to_largest_array_with_warning():
             ]
         }
     }
-    rows, warnings = parse_json(_bytes(data))
+    rows, warnings, _ = parse_json(_bytes(data))
     assert len(rows) == 2
     assert any("No standard findings key" in w for w in warnings)
 
@@ -106,7 +106,7 @@ def test_does_not_silently_drop_a_sibling_collection():
         "findings": [{"finding": f"Finding {i}", "target": f"host{i}", "domain": "fabrikam.local"} for i in range(10)],
         "assets_inventory": [{"name": f"host{i}", "type": "computer"} for i in range(10)],
     }
-    rows, warnings = parse_json(_bytes(data))
+    rows, warnings, _ = parse_json(_bytes(data))
     assert len(rows) == 10
     assert any("assets_inventory" in w and "NOT treated as findings" in w for w in warnings)
 
@@ -119,7 +119,7 @@ def test_finding_missing_title_and_asset_is_still_parsed_row_but_mapper_skips_la
     # mapper.py's job (shared with CSV) — verify the row still comes through
     # with None values so mapper can apply its existing skip logic.
     data = [{"severity": "High"}]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     assert len(rows) == 1
     assert rows[0].title is None
     assert rows[0].asset_name is None
@@ -127,7 +127,7 @@ def test_finding_missing_title_and_asset_is_still_parsed_row_but_mapper_skips_la
 
 def test_finding_missing_asset_type_defaults_handled_by_mapper():
     data = [{"finding": "Service Account Risk", "target": "svc_x", "domain": "fabrikam.local"}]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     assert rows[0].asset_type is None  # mapper.py normalizes this to "unknown"
 
 
@@ -148,7 +148,7 @@ def test_credential_shaped_keys_redacted_recursively():
             "credentials": {"username": "administrator", "password": "Summer2024!"},
         }
     ]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     raw = rows[0].raw
     assert raw["evidence"] == REDACTED_MARKER
     assert raw["credentials"] == REDACTED_MARKER
@@ -158,7 +158,7 @@ def test_credential_shaped_keys_redacted_recursively():
 
 def test_credential_shaped_key_at_top_level_scalar():
     data = [{"finding": "Leaked Credential", "target": "svc_vpn", "domain": "fabrikam.local", "ntlm": "deadbeefdeadbeefdeadbeefdeadbeef"}]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     assert rows[0].raw["ntlm"] == REDACTED_MARKER
     assert rows[0].unmapped_fields.get("ntlm") == REDACTED_MARKER
 
@@ -179,7 +179,7 @@ def test_inline_secret_in_description_redacted_in_raw_copy():
             "description": "Cracked password = Summer2024! during assessment.",
         }
     ]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     assert "Summer2024!" not in json.dumps(rows[0].raw)
     assert "[REDACTED]" in rows[0].raw["description"]
 
@@ -194,7 +194,7 @@ def test_inline_secret_in_description_redacted_after_mapping():
             "recommendation": "Rotate credential: Summer2024! immediately.",
         }
     ]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     result = mapper.map_rows(rows)
     nf = result.findings[0]
     assert "Summer2024!" not in (nf.description or "")
@@ -212,7 +212,7 @@ def test_inline_secret_in_generic_unmapped_field_redacted():
             "notes": "Found password: Summer2024! in a script.",
         }
     ]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     assert "Summer2024!" not in json.dumps(rows[0].raw)
     assert "Summer2024!" not in json.dumps(rows[0].unmapped_fields)
 
@@ -257,5 +257,5 @@ def test_unmapped_fields_preserved():
             "pentera_internal_id": "ABC-123",
         }
     ]
-    rows, _ = parse_json(_bytes(data))
+    rows, _, _ = parse_json(_bytes(data))
     assert rows[0].unmapped_fields.get("pentera_internal_id") == "ABC-123"

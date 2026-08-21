@@ -20,8 +20,11 @@ scope for this MVP.
 **Pentera export formats**: **JSON is the preferred format** (CSV remains
 fully supported; PDF is not yet supported). See
 [docs/PENTERA_IMPORT.md](docs/PENTERA_IMPORT.md) — and note its explicit
-disclaimer: JSON support is structurally defensive but has not been
-validated against a real sanitized Pentera export.
+disclaimer: JSON compatibility has now been informed by a sanitized sample
+of the actual Pentera ADPA export structure (its two top-level
+collections, `achievements` and `vulnerabilities`, and the field shape of
+a real `achievements` object), but has **not** been validated
+comprehensively against every Pentera version/schema.
 
 ## Stack
 

@@ -132,6 +132,9 @@ export interface ImportSummary {
   recurring_findings: number
   resolved_findings: number
   duplicate_observations_coalesced: number
+  achievements_discovered: number
+  vulnerabilities_discovered: number
+  remediation_findings_created: number
 }
 
 export interface PriorityDistribution {

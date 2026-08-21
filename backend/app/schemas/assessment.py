@@ -32,6 +32,9 @@ class ImportSummaryOut(BaseModel):
     recurring_findings: int
     resolved_findings: int
     duplicate_observations_coalesced: int = 0
+    achievements_discovered: int = 0
+    vulnerabilities_discovered: int = 0
+    remediation_findings_created: int = 0
 
 
 class PriorityDistribution(BaseModel):

@@ -49,6 +49,21 @@ class ImportSummary:
     # allows -- never counted as new/recurring, which describe
     # cross-assessment history, not repeats within one file.
     duplicate_observations_coalesced: int = 0
+    # Pentera JSON-only: how many objects were found in the source file's
+    # "achievements" / "vulnerabilities" collections, regardless of how
+    # many of those became FindingInstances. 0 for a CSV import, or a JSON
+    # import whose export didn't contain that collection at all. See
+    # json_parser.py / docs/PENTERA_IMPORT.md "Architecture: achievements
+    # vs. vulnerabilities".
+    achievements_discovered: int = 0
+    vulnerabilities_discovered: int = 0
+    # Distinct logical Findings (new + recurring) this import actually
+    # created or touched -- i.e. the number of real remediation items a
+    # user will see for this assessment, after intra-assessment duplicate
+    # coalescing. Distinguishes "how many Findings do I need to act on"
+    # from rows_imported (raw source record count, e.g. 15,982 achievement
+    # objects before coalescing).
+    remediation_findings_created: int = 0
 
 
 def _get_or_create_asset(db: Session, nf: NormalizedFinding) -> Asset:
@@ -176,7 +191,7 @@ def import_pentera_json(
     log.info("Pentera JSON import started: file_size_bytes=%d", len(content))
 
     try:
-        raw_rows, parse_warnings = json_parser.parse_json(content)
+        raw_rows, parse_warnings, collection_counts = json_parser.parse_json(content)
     except ParseError as exc:
         log.warning("Pentera JSON import failed at parse stage: %s", type(exc).__name__)
         raise
@@ -190,6 +205,8 @@ def import_pentera_json(
         environment=environment,
         source_filename=source_filename,
         notes=notes,
+        achievements_discovered=collection_counts.get("achievements_discovered", 0),
+        vulnerabilities_discovered=collection_counts.get("vulnerabilities_discovered", 0),
     )
 
 
@@ -203,6 +220,8 @@ def _import_parsed_rows(
     environment: str | None,
     source_filename: str | None,
     notes: str | None,
+    achievements_discovered: int = 0,
+    vulnerabilities_discovered: int = 0,
 ) -> ImportSummary:
     """Shared core for both CSV and JSON imports, starting from the same
     RawPenteraRow shape either parser produces: mapper -> fingerprint ->
@@ -242,11 +261,20 @@ def _import_parsed_rows(
         seen_fingerprints: set[str] = set()
         seen_finding_ids: set[int] = set()
         domains_in_batch: set[str] = set()
+        # Track how many source records (including duplicates) coalesced
+        # into each fingerprint's single FindingInstance, so the count is
+        # visible on the instance itself rather than only in the aggregate
+        # ImportSummary -- e.g. an achievement observed 40 times in one
+        # Pentera export becomes one FindingInstance with occurrence_count
+        # 40, not 40 rows or 1 row with the repetition silently lost.
+        instance_by_fingerprint: dict[str, FindingInstance] = {}
+        occurrence_count_by_fingerprint: dict[str, int] = {}
 
         for nf in result.findings:
             fingerprint = compute_fingerprint(nf.normalized_type, nf.domain, nf.asset_external_identifier)
 
             if fingerprint in seen_fingerprints:
+                occurrence_count_by_fingerprint[fingerprint] = occurrence_count_by_fingerprint.get(fingerprint, 1) + 1
                 # Intra-assessment duplicate: another source record earlier
                 # in THIS SAME import already resolved to this exact
                 # logical finding (identical records, or superficially
@@ -271,16 +299,17 @@ def _import_parsed_rows(
             asset = _get_or_create_asset(db, nf)
             finding, is_new = _get_or_create_finding(db, fingerprint, nf, asset, assessment_date)
 
-            db.add(
-                FindingInstance(
-                    finding_id=finding.id,
-                    assessment_id=assessment.id,
-                    source_severity=nf.severity,
-                    source_title=nf.source_title,
-                    raw_row=nf.raw_row,
-                    observed_at=assessment_date,
-                )
+            instance = FindingInstance(
+                finding_id=finding.id,
+                assessment_id=assessment.id,
+                source_severity=nf.severity,
+                source_title=nf.source_title,
+                raw_row=nf.raw_row,
+                observed_at=assessment_date,
             )
+            db.add(instance)
+            instance_by_fingerprint[fingerprint] = instance
+            occurrence_count_by_fingerprint[fingerprint] = 1
 
             risk = compute_risk(
                 severity=finding.severity,
@@ -300,6 +329,9 @@ def _import_parsed_rows(
                 recurring_count += 1
             seen_finding_ids.add(finding.id)
             domains_in_batch.add(nf.domain.strip().lower())
+
+        for fingerprint, instance in instance_by_fingerprint.items():
+            instance.occurrence_count = occurrence_count_by_fingerprint.get(fingerprint, 1)
 
         if duplicate_count:
             warnings.append(
@@ -349,7 +381,8 @@ def _import_parsed_rows(
 
     log.info(
         "Pentera import completed: assessment_id=%d rows_processed=%d rows_imported=%d "
-        "rows_skipped=%d warnings=%d unknown=%d new=%d recurring=%d resolved=%d duplicates=%d",
+        "rows_skipped=%d warnings=%d unknown=%d new=%d recurring=%d resolved=%d duplicates=%d "
+        "achievements_discovered=%d vulnerabilities_discovered=%d",
         assessment.id,
         result.rows_processed,
         len(result.findings),
@@ -360,6 +393,8 @@ def _import_parsed_rows(
         recurring_count,
         resolved_count,
         duplicate_count,
+        achievements_discovered,
+        vulnerabilities_discovered,
     )
 
     return ImportSummary(
@@ -373,4 +408,7 @@ def _import_parsed_rows(
         recurring_findings=recurring_count,
         resolved_findings=resolved_count,
         duplicate_observations_coalesced=duplicate_count,
+        achievements_discovered=achievements_discovered,
+        vulnerabilities_discovered=vulnerabilities_discovered,
+        remediation_findings_created=len(seen_finding_ids),
     )

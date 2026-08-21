@@ -24,3 +24,11 @@ class FindingInstance(Base):
     source_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     raw_row: Mapped[dict] = mapped_column(JSON, default=dict)
     observed_at: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # How many source records within the SAME assessment coalesced into
+    # this one instance (e.g. several duplicate/near-duplicate Pentera
+    # achievement observations for the same underlying remediation
+    # condition). 1 for a normal, non-duplicated observation. See
+    # services/import_service.py and docs/PENTERA_IMPORT.md
+    # "Intra-assessment duplicates".
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

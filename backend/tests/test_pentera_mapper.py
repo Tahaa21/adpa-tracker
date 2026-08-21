@@ -29,7 +29,10 @@ def test_unknown_finding_still_imports_with_original_title_preserved():
     assert nf.normalized_type == "UNKNOWN"
     assert nf.category == "OTHER"
     assert nf.source_metadata["source_title"] == "Something Pentera Invented Yesterday"
-    assert any("unrecognized finding type" in w for w in result.warnings)
+    # Warnings are aggregated per distinct cause, not one per row (see
+    # docs/PENTERA_IMPORT.md "Warning aggregation") -- still contains the
+    # original title and a stable "imported as UNKNOWN" marker.
+    assert any("Something Pentera Invented Yesterday" in w and "imported as UNKNOWN" in w for w in result.warnings)
 
 
 def test_row_missing_title_and_asset_is_skipped_not_crashed():

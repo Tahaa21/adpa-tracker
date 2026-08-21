@@ -202,9 +202,120 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-20 (seventh checkpoint — Pentera JSON ingestion added)._
+_Last updated: 2026-08-21 (ninth checkpoint — Pentera ADPA achievements vs.
+vulnerabilities adaptation)._
 
-**New this checkpoint**: Pentera **JSON** import, alongside the existing CSV
+**New this checkpoint**: the first real local Pentera ADPA JSON import
+(commit `e123ae9` and earlier) surfaced that the real export's top-level
+structure is two large collections — `achievements` (~16k objects, the
+real remediation-finding source) and `vulnerabilities` (~15k objects,
+lower-level observations) — and the importer had wrongly auto-selected
+`vulnerabilities` by size, producing only 23 usable findings buried in
+11,635 near-identical warnings. Per explicit instruction, the real
+assessment file itself was never requested or inspected — only aggregate
+counts and one sanitized real `achievements` object (values replaced by
+placeholders) were used to inform this fix.
+
+- [x] `json_parser.py`: `achievements` is now an explicit, absolute-priority
+      collection — chosen over `vulnerabilities`/anything else regardless
+      of relative size (no more largest-array-among-known-keys heuristic
+      for this case). A vulnerabilities-only export (no `achievements` at
+      all) still falls back to the pre-existing named-collection logic
+      unchanged. New dedicated `_map_achievement_object()` (not the
+      generic alias-based mapper) explicitly maps `name`→title,
+      `severity`(numeric)→severity, `parameters.Domain`→domain,
+      `parameters.<Account|...>`→asset scope, `summary`→description,
+      `parameters`→preserved metadata (recursively redacted), and
+      `id`/`creation_time`→metadata-only fields. Critically, achievement
+      `id` is **never** used as the fingerprint/asset identifier (the
+      generic path's alias table has a bare `"id"` alias that would have
+      been wrong here — every achievement has a distinct id, which would
+      have defeated deduplication entirely).
+- [x] `mapper.py`: numeric severity (e.g. `8.3`) buckets deterministically
+      into low/medium/high/critical via `NUMERIC_SEVERITY_THRESHOLDS`
+      (CVSS-shaped band boundaries reused as a documented reasonable
+      default — **explicitly not a CVSS claim**, no Pentera evidence
+      confirms that scale). Original numeric value preserved in
+      `source_metadata.pentera_numeric_severity`. Per-row warnings
+      (unrecognized type, unrecognized asset type, missing fields) are now
+      aggregated per distinct cause via `collections.Counter` instead of
+      one warning per row — the 11,635-warning flood becomes a handful of
+      lines like `"Using empty password(s): 1284 observation(s) imported
+      as UNKNOWN."`.
+- [x] New `FindingInstance.occurrence_count` column (migration
+      `fc6a289fcc4b`, `server_default='1'` so it's safe against an
+      existing local DB) — records how many source records (first
+      occurrence + every coalesced intra-assessment duplicate) resolved to
+      that instance, so repetition is visible on the record itself, not
+      only in the aggregate import summary.
+- [x] `ImportSummary`/`ImportSummaryOut` gained `achievements_discovered`,
+      `vulnerabilities_discovered` (JSON-only, 0 for CSV or when that
+      collection is absent), and `remediation_findings_created` (distinct
+      new+recurring Findings actually created/touched — the real
+      "how many things do I need to fix" number, vs. `rows_imported`'s raw
+      source-record count).
+- [x] Frontend: `Assessments.tsx` shows a second stat row (Achievements
+      Discovered / Vulnerabilities Discovered / Remediation Findings
+      Created) only when relevant (JSON imports with those collections),
+      so a CSV import's card stays unchanged.
+- [x] Tests: 13 new in `backend/tests/test_pentera_achievements.py`, all
+      using **synthetic data only** shaped like the one sanitized real
+      example — real assessment never touched. Covers: achievements
+      selected over a co-present vulnerabilities regardless of size
+      (including a ~100x-larger vulnerabilities collection), numeric
+      severity 8.3→high preserved + bucket-boundary sweep, `parameters
+      .Domain` and specific-account scope mapping, duplicate achievements
+      coalescing into one FindingInstance with `occurrence_count=3`,
+      unknown achievement name keeping its title/severity, recursive
+      credential redaction in `parameters` and in `summary`-derived
+      description text, vulnerabilities-only exports still working via the
+      generic path, CSV imports reporting achievements/vulnerabilities
+      counts as 0, and warning aggregation collapsing 50 near-identical
+      UNKNOWN observations into 1 warning line. **115 total backend tests
+      pass** (102 pre-existing + 13 new — all CSV and pre-existing JSON
+      tests still pass unmodified in behavior), frontend build+lint clean.
+- [x] Live-verified end-to-end via `./start.sh` + a synthetic
+      achievements+vulnerabilities JSON (6 achievements incl. 3 duplicates,
+      1 domain-level, 2 distinct UNKNOWN; 3 vulnerabilities): API response
+      and direct DB query both confirmed `achievements_discovered=6`,
+      `vulnerabilities_discovered=3`, `remediation_findings_created=4`,
+      `duplicate_observations_coalesced=2`, `occurrence_count=3` on the
+      coalesced instance, severity buckets 8.3→high/9.5→critical/5.0→medium
+      all correct. Re-imported the same file as a second assessment through
+      the real browser UI (DataTransfer file injection, not just curl) —
+      new stat cards rendered correctly, cross-assessment dedup showed
+      `Recurring: 4` as expected.
+- [x] Docs updated: `docs/PENTERA_IMPORT.md` gained a new "Architecture:
+      achievements vs. vulnerabilities" section (selection priority,
+      achievement field mapping table, numeric severity mapping,
+      dedup/occurrence-count behavior, and an explicit note that
+      associating an achievement with its underlying vulnerability
+      evidence is architecturally possible later but not built now) and a
+      "Warning aggregation" section; this file.
+- [x] **Explicit, honest limitation restated**: JSON compatibility has now
+      been informed by a sanitized sample of the actual Pentera ADPA export
+      structure, but has **not** been validated comprehensively against
+      every Pentera version/schema — only the `achievements`
+      shape/priority is confirmed; `vulnerabilities`' own object shape and
+      any other possible top-level collections remain unconfirmed guesses,
+      same as before.
+
+_Prior checkpoint (eighth, commits `6b2de38`/`d65ced9`/`e123ae9`) — real
+Pentera-import bug fixes not yet logged here as their own checkpoint
+writeup: raised the local upload-size limit to 100 MiB and fixed the real
+root cause (a stale gitignored local `.env` with a smaller limit that
+`git pull` never updates); fixed a `sqlalchemy.exc.IntegrityError` on
+intra-assessment duplicate findings (root cause: `autoflush=False` session
+couldn't see same-batch unflushed inserts) via an in-memory
+`seen_fingerprints` set plus an explicit atomic `try/except:
+db.rollback(); raise` around the whole import transaction; added
+`duplicate_observations_coalesced` to the import summary. See those
+commits' messages for full detail — the achievements/vulnerabilities work
+above builds directly on this atomic-import foundation._
+
+_Prior checkpoint (seventh) — Pentera JSON ingestion added:_
+
+**New that checkpoint**: Pentera **JSON** import, alongside the existing CSV
 path — JSON is now the preferred format (Pentera's real export for this
 deployment; CSV remains fully supported; PDF still not supported).
 
@@ -507,20 +618,22 @@ python3 scripts/load_sample_data.py http://localhost:8000
 brings it up fully working (backend on :8000, frontend on :5173, sample
 data loadable in one command). Three open items remain, none blocking:
 
-1. **Validate `json_parser.py` against a REAL sanitized Pentera JSON
-   export.** This is the most important of the three — everything about
-   the JSON parser is currently structurally defensive, not
-   schema-verified, because this session had no real export to work from.
-   Next session: get one real sanitized Pentera JSON export (or at minimum
-   its top-level structure + a couple of full sample finding objects with
-   values replaced by placeholders), import it via the UI, read the
-   warnings carefully (they'll say exactly what structure was guessed —
-   e.g. "no standard findings key... used the largest array... review
-   this"), and adjust `FIELD_ALIASES`/`KNOWN_COLLECTION_KEYS`/
-   `ASSET_CONTAINER_KEYS` in `json_parser.py` to match reality. This is a
-   targeted data-driven fix, not a redesign — the pipeline
-   (parser→mapper→import_service) doesn't change regardless of what's
-   found.
+1. **Run a SECOND real Pentera ADPA JSON import** to confirm the
+   achievements-vs-vulnerabilities adaptation (this checkpoint) actually
+   fixes the real-world problem observed in the first real import (23
+   usable findings buried in 11,635 warnings). Watch specifically for:
+   `achievements_discovered` matching the real achievements collection
+   size, a plausible `remediation_findings_created` count (should be much
+   smaller than `rows_processed`, not ~equal to it), `unknown_mappings`
+   dropping sharply now that achievement names are classified via the same
+   `TYPE_RULES` as CSV (may still be nonzero — that's fine, unknown
+   findings stay useful), and warnings that are few and aggregated rather
+   than thousands of near-duplicates. If any achievement `parameters` key
+   beyond `Domain`/`Account`/etc. turns out to matter for asset scope,
+   extend `ACHIEVEMENT_SCOPE_PARAMETER_KEYS` in `json_parser.py` — targeted
+   fix, not a redesign. Do not request or inspect the real file itself;
+   work only from aggregate counts/warnings and further sanitized samples,
+   same discipline as this checkpoint.
 2. **Verify `start.ps1`/`stop.ps1` on an actual Windows machine.** Written
    to mirror `start.sh` exactly, syntax-reviewed carefully, but never
    executed — no Windows/pwsh available in this dev environment. Run it,
@@ -541,4 +654,4 @@ demo workflow, both Pentera import formats' code paths, and the one-command
 macOS/Linux startup — is built, tested, and has been verified live across
 multiple sessions. None of the three remaining items is a "re-verify
 everything" task, and none blocks using or demoing the product today via
-`./start.sh` (with CSV, or with JSON keeping in mind item 1's caveat).
+`./start.sh`.

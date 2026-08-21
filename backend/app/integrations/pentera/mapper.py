@@ -3,8 +3,12 @@
 Keyword-based classification into normalized_type/category. Adding a new
 Pentera finding phrasing is a one-line addition to TYPE_RULES — no structural
 change needed. Unrecognized findings are never a hard failure: they import as
-normalized_type=UNKNOWN, category=OTHER, with the original title preserved.
+normalized_type=UNKNOWN, category=OTHER, with the original title AND
+severity preserved (an unfamiliar name is never a reason to lose useful
+remediation-tracking data).
 """
+from collections import Counter
+
 from app.integrations.pentera.schemas import NormalizedFinding, ParseResult, RawPenteraRow
 from app.services.redaction import redact_inline_credentials
 
@@ -39,6 +43,26 @@ SEVERITY_ALIASES = {
     "informational": "low",
     "info": "low",
 }
+
+# Deterministic mapping from a NUMERIC Pentera severity (e.g. an achievement's
+# `severity: 8.3`) to our internal low/medium/high/critical bucket.
+#
+# This is NOT a claim that Pentera's numeric scale is CVSS — we have no
+# Pentera documentation or code evidence confirming that, and the task that
+# introduced this deliberately said not to assume it. These thresholds
+# simply reuse the same numeric band boundaries CVSS v3.x happens to use
+# (0.1-3.9 Low / 4.0-6.9 Medium / 7.0-8.9 High / 9.0-10.0 Critical) because,
+# absent better information, they're a well-known, reasonable default for a
+# 0-10 severity scale. If Pentera's real scale/documentation turns out to
+# differ, adjust NUMERIC_SEVERITY_THRESHOLDS — nothing else needs to change.
+# The original numeric value is never discarded: see
+# NormalizedFinding.source_metadata["pentera_numeric_severity"] below.
+NUMERIC_SEVERITY_THRESHOLDS: list[tuple[float, str]] = [
+    (9.0, "critical"),
+    (7.0, "high"),
+    (4.0, "medium"),
+    (0.0, "low"),
+]
 
 ASSET_TYPE_ALIASES = {
     "user": "user",
@@ -75,10 +99,28 @@ TYPE_FLAGS: dict[str, tuple[bool, bool, bool]] = {
 }
 
 
+def _bucket_numeric_severity(value: float) -> str:
+    for threshold, bucket in NUMERIC_SEVERITY_THRESHOLDS:
+        if value >= threshold:
+            return bucket
+    return "low"
+
+
+def _parse_numeric_severity(raw: str) -> float | None:
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _normalize_severity(raw: str | None) -> str:
     if not raw:
         return "medium"
-    return SEVERITY_ALIASES.get(raw.strip().lower(), "medium")
+    raw = raw.strip()
+    numeric = _parse_numeric_severity(raw)
+    if numeric is not None:
+        return _bucket_numeric_severity(numeric)
+    return SEVERITY_ALIASES.get(raw.lower(), "medium")
 
 
 def _normalize_asset_type(raw: str | None) -> str:
@@ -97,35 +139,45 @@ def classify(title: str) -> tuple[str, str]:
 
 
 def map_rows(rows: list[RawPenteraRow]) -> ParseResult:
+    """Maps rows to normalized findings.
+
+    Per-row structural issues (unrecognized finding type, missing
+    title/asset, unrecognized asset type) are AGGREGATED into one summary
+    warning per distinct cause rather than one warning per row — a real
+    Pentera export can have thousands of rows sharing the same
+    unrecognized-name cause (e.g. "Using empty password(s)"), and one
+    warning per row would flood the UI/API response. See
+    docs/PENTERA_IMPORT.md "Warning aggregation".
+    """
     result = ParseResult(rows_processed=len(rows))
+
+    missing_both_count = 0
+    missing_title_count = 0
+    missing_asset_count = 0
+    unrecognized_asset_type_counts: Counter[str] = Counter()
+    unknown_type_counts: Counter[str] = Counter()
 
     for row in rows:
         if not row.title and not row.asset_name:
-            result.warnings.append(f"Row {row.row_number}: missing both title and asset, skipped.")
+            missing_both_count += 1
             result.rows_skipped += 1
             continue
 
         title = (row.title or "Unnamed Pentera Finding").strip()
         if not row.title:
-            result.warnings.append(
-                f"Row {row.row_number}: missing finding title, used placeholder title."
-            )
+            missing_title_count += 1
 
         normalized_type, category = classify(title)
         if normalized_type == "UNKNOWN":
-            result.warnings.append(
-                f"Row {row.row_number}: unrecognized finding type '{title}', imported as UNKNOWN."
-            )
+            unknown_type_counts[title] += 1
 
         asset_name = (row.asset_name or "Unknown Asset").strip()
         if not row.asset_name:
-            result.warnings.append(f"Row {row.row_number}: missing asset name, used placeholder.")
+            missing_asset_count += 1
 
         asset_type = _normalize_asset_type(row.asset_type)
         if row.asset_type and asset_type == "unknown":
-            result.warnings.append(
-                f"Row {row.row_number}: unrecognized asset type '{row.asset_type}', defaulted to 'unknown'."
-            )
+            unrecognized_asset_type_counts[row.asset_type] += 1
 
         severity = _normalize_severity(row.severity)
         domain = (row.domain or "").strip().lower()
@@ -135,6 +187,17 @@ def map_rows(rows: list[RawPenteraRow]) -> ParseResult:
             normalized_type, (False, False, False)
         )
         exploitable = bool(row.exploitable and row.exploitable.strip().lower() in TRUTHY)
+
+        source_metadata = {
+            "source_title": title,
+            "unmapped_fields": row.unmapped_fields,
+        }
+        numeric_severity = _parse_numeric_severity(row.severity) if row.severity else None
+        if numeric_severity is not None:
+            # Preserve the original Pentera numeric severity (e.g. 8.3)
+            # alongside the bucketed low/medium/high/critical value used
+            # everywhere else — never discarded.
+            source_metadata["pentera_numeric_severity"] = numeric_severity
 
         result.findings.append(
             NormalizedFinding(
@@ -158,12 +221,28 @@ def map_rows(rows: list[RawPenteraRow]) -> ParseResult:
                 privileged=privileged,
                 tier_zero=tier_zero,
                 credential_exposure=credential_exposure,
-                source_metadata={
-                    "source_title": title,
-                    "unmapped_fields": row.unmapped_fields,
-                },
+                source_metadata=source_metadata,
                 raw_row=row.raw,
             )
         )
+
+    if missing_both_count:
+        result.warnings.append(
+            f"{missing_both_count} row(s) skipped: missing both title and asset."
+        )
+    if missing_title_count:
+        result.warnings.append(
+            f"{missing_title_count} row(s) missing a finding title; used a placeholder title."
+        )
+    if missing_asset_count:
+        result.warnings.append(
+            f"{missing_asset_count} row(s) missing an asset name; used a placeholder."
+        )
+    for asset_type_raw, count in unrecognized_asset_type_counts.most_common():
+        result.warnings.append(
+            f"{count} row(s) had unrecognized asset type '{asset_type_raw}', defaulted to 'unknown'."
+        )
+    for title, count in unknown_type_counts.most_common():
+        result.warnings.append(f"{title}: {count} observation(s) imported as UNKNOWN.")
 
     return result
