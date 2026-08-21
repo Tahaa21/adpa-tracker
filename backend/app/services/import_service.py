@@ -41,6 +41,14 @@ class ImportSummary:
     new_findings: int = 0
     recurring_findings: int = 0
     resolved_findings: int = 0
+    # Source records within THIS SAME assessment that fingerprinted to a
+    # logical Finding already observed earlier in this same import (exact
+    # duplicates, or superficially-different records normalizing to the
+    # same (type, domain, asset) triple). Coalesced into the one
+    # FindingInstance the UNIQUE(finding_id, assessment_id) constraint
+    # allows -- never counted as new/recurring, which describe
+    # cross-assessment history, not repeats within one file.
+    duplicate_observations_coalesced: int = 0
 
 
 def _get_or_create_asset(db: Session, nf: NormalizedFinding) -> Asset:
@@ -206,40 +214,63 @@ def _import_parsed_rows(
     warnings = parse_warnings + result.warnings
     unknown_count = sum(1 for nf in result.findings if nf.normalized_type == "UNKNOWN")
 
-    assessment = Assessment(
-        name=name,
-        source="pentera",
-        assessment_date=assessment_date,
-        environment=environment,
-        source_filename=source_filename,
-        notes=notes,
-        rows_processed=result.rows_processed,
-        rows_imported=len(result.findings),
-        rows_skipped=result.rows_skipped,
-        import_warnings=warnings,
-    )
-    db.add(assessment)
-    db.flush()
-
-    new_count = 0
-    recurring_count = 0
-    seen_finding_ids: set[int] = set()
-    domains_in_batch: set[str] = set()
-
-    for nf in result.findings:
-        asset = _get_or_create_asset(db, nf)
-        fingerprint = compute_fingerprint(nf.normalized_type, nf.domain, nf.asset_external_identifier)
-        finding, is_new = _get_or_create_finding(db, fingerprint, nf, asset, assessment_date)
-
-        existing_instance = (
-            db.query(FindingInstance)
-            .filter(
-                FindingInstance.finding_id == finding.id,
-                FindingInstance.assessment_id == assessment.id,
-            )
-            .first()
+    # Everything from here through db.commit() is one atomic unit: any
+    # exception rolls the whole attempt back explicitly (not relying on
+    # get_db()'s close()-implies-rollback behavior, which is real but not
+    # the place to document/guarantee this contract) so a failed import
+    # never leaves a partial Assessment/Finding/FindingInstance/Asset
+    # behind. See test_import_atomicity.py.
+    try:
+        assessment = Assessment(
+            name=name,
+            source="pentera",
+            assessment_date=assessment_date,
+            environment=environment,
+            source_filename=source_filename,
+            notes=notes,
+            rows_processed=result.rows_processed,
+            rows_imported=len(result.findings),
+            rows_skipped=result.rows_skipped,
+            import_warnings=warnings,
         )
-        if existing_instance is None:
+        db.add(assessment)
+        db.flush()
+
+        new_count = 0
+        recurring_count = 0
+        duplicate_count = 0
+        seen_fingerprints: set[str] = set()
+        seen_finding_ids: set[int] = set()
+        domains_in_batch: set[str] = set()
+
+        for nf in result.findings:
+            fingerprint = compute_fingerprint(nf.normalized_type, nf.domain, nf.asset_external_identifier)
+
+            if fingerprint in seen_fingerprints:
+                # Intra-assessment duplicate: another source record earlier
+                # in THIS SAME import already resolved to this exact
+                # logical finding (identical records, or superficially
+                # different ones that normalize to the same
+                # (type, domain, asset) triple — e.g. multiple
+                # evidence/attack-path records for one issue, or the same
+                # affected object reported under more than one module).
+                # Real Pentera exports can legitimately do this. Collapse
+                # into the single FindingInstance the
+                # UNIQUE(finding_id, assessment_id) constraint requires —
+                # never attempt a second one — and don't touch the Finding
+                # again (it was already fully populated by the first
+                # occurrence; re-applying a duplicate's fields here could
+                # desync finding.severity from finding.risk_score, which is
+                # only recomputed below for the first occurrence). Not
+                # counted as new or recurring: those describe
+                # cross-assessment history, not repeats within one file.
+                duplicate_count += 1
+                continue
+            seen_fingerprints.add(fingerprint)
+
+            asset = _get_or_create_asset(db, nf)
+            finding, is_new = _get_or_create_finding(db, fingerprint, nf, asset, assessment_date)
+
             db.add(
                 FindingInstance(
                     finding_id=finding.id,
@@ -251,59 +282,74 @@ def _import_parsed_rows(
                 )
             )
 
-        risk = compute_risk(
-            severity=finding.severity,
-            tier_zero=nf.tier_zero,
-            privileged=nf.privileged,
-            credential_exposure=nf.credential_exposure,
-            exploitable=nf.exploitable,
-            asset_criticality=asset.criticality,
-        )
-        finding.risk_score = risk.score
-        finding.priority = risk.priority
-        finding.risk_reasons = risk.reasons
+            risk = compute_risk(
+                severity=finding.severity,
+                tier_zero=nf.tier_zero,
+                privileged=nf.privileged,
+                credential_exposure=nf.credential_exposure,
+                exploitable=nf.exploitable,
+                asset_criticality=asset.criticality,
+            )
+            finding.risk_score = risk.score
+            finding.priority = risk.priority
+            finding.risk_reasons = risk.reasons
 
-        if is_new:
-            new_count += 1
+            if is_new:
+                new_count += 1
+            else:
+                recurring_count += 1
+            seen_finding_ids.add(finding.id)
+            domains_in_batch.add(nf.domain.strip().lower())
+
+        if duplicate_count:
+            warnings.append(
+                f"{duplicate_count} source record(s) were duplicate observations of an "
+                "already-imported finding within this same assessment and were coalesced "
+                "into a single record (not counted as new or recurring)."
+            )
+            # Reassign (not mutate in place) so SQLAlchemy's change-tracking
+            # picks it up for the JSON column -- appending to the list
+            # object after it was already assigned to import_warnings would
+            # not reliably be detected as a change to flush/persist.
+            assessment.import_warnings = warnings
+
+        db.flush()
+
+        # Anything previously "present" in one of the domains covered by this
+        # assessment, but not observed this time, is now considered resolved /
+        # no longer observed.
+        resolved_count = 0
+        if domains_in_batch:
+            candidates = (
+                db.query(Finding)
+                .join(Asset, Finding.asset_id == Asset.id)
+                .filter(Finding.currently_present.is_(True))
+                .filter(Asset.domain.in_(domains_in_batch))
+                .all()
+            )
+            for f in candidates:
+                if f.id not in seen_finding_ids:
+                    f.currently_present = False
+                    resolved_count += 1
+
+        # Assessment-level aggregate risk score: mean risk score of findings that
+        # were present in this specific assessment (simple, explainable).
+        if seen_finding_ids:
+            findings_in_assessment = db.query(Finding).filter(Finding.id.in_(seen_finding_ids)).all()
+            assessment.risk_score = round(
+                sum(f.risk_score for f in findings_in_assessment) / len(findings_in_assessment), 1
+            )
         else:
-            recurring_count += 1
-        seen_finding_ids.add(finding.id)
-        domains_in_batch.add(nf.domain.strip().lower())
+            assessment.risk_score = 0
 
-    db.flush()
-
-    # Anything previously "present" in one of the domains covered by this
-    # assessment, but not observed this time, is now considered resolved /
-    # no longer observed.
-    resolved_count = 0
-    if domains_in_batch:
-        candidates = (
-            db.query(Finding)
-            .join(Asset, Finding.asset_id == Asset.id)
-            .filter(Finding.currently_present.is_(True))
-            .filter(Asset.domain.in_(domains_in_batch))
-            .all()
-        )
-        for f in candidates:
-            if f.id not in seen_finding_ids:
-                f.currently_present = False
-                resolved_count += 1
-
-    # Assessment-level aggregate risk score: mean risk score of findings that
-    # were present in this specific assessment (simple, explainable).
-    if seen_finding_ids:
-        findings_in_assessment = db.query(Finding).filter(Finding.id.in_(seen_finding_ids)).all()
-        assessment.risk_score = round(
-            sum(f.risk_score for f in findings_in_assessment) / len(findings_in_assessment), 1
-        )
-    else:
-        assessment.risk_score = 0
-
-    db.commit()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     log.info(
         "Pentera import completed: assessment_id=%d rows_processed=%d rows_imported=%d "
-        "rows_skipped=%d warnings=%d unknown=%d new=%d recurring=%d resolved=%d",
+        "rows_skipped=%d warnings=%d unknown=%d new=%d recurring=%d resolved=%d duplicates=%d",
         assessment.id,
         result.rows_processed,
         len(result.findings),
@@ -313,6 +359,7 @@ def _import_parsed_rows(
         new_count,
         recurring_count,
         resolved_count,
+        duplicate_count,
     )
 
     return ImportSummary(
@@ -325,4 +372,5 @@ def _import_parsed_rows(
         new_findings=new_count,
         recurring_findings=recurring_count,
         resolved_findings=resolved_count,
+        duplicate_observations_coalesced=duplicate_count,
     )

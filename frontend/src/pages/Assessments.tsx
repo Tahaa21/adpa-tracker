@@ -102,11 +102,12 @@ function ImportSummaryCard({ summary }: { summary: ImportSummary }) {
   return (
     <Card className="mb-6 border-emerald-500/30 bg-emerald-500/5">
       <h3 className="mb-3 text-sm font-semibold text-emerald-300">Import complete</h3>
-      <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-7">
         <Stat label="Records Discovered" value={summary.rows_processed} />
         <Stat label="Imported" value={summary.rows_imported} />
         <Stat label="Skipped" value={summary.rows_skipped} />
         <Stat label="Unknown Mappings" value={summary.unknown_mappings} />
+        <Stat label="Duplicates Coalesced" value={summary.duplicate_observations_coalesced} />
         <Stat label="New" value={summary.new_findings} />
         <Stat label="Recurring" value={summary.recurring_findings} />
       </div>

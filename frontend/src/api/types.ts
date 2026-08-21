@@ -131,6 +131,7 @@ export interface ImportSummary {
   new_findings: number
   recurring_findings: number
   resolved_findings: number
+  duplicate_observations_coalesced: number
 }
 
 export interface PriorityDistribution {

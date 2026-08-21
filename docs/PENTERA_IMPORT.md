@@ -225,6 +225,31 @@ assessment but has **no** `FindingInstance` in the new assessment is marked
 longer active) — this is how the dashboard shows "resolved / no longer
 observed".
 
+### Intra-assessment duplicates
+
+`FindingInstance` has `UNIQUE(finding_id, assessment_id)` — one logical
+Finding gets at most one FindingInstance per Assessment, by design. A real
+Pentera export can legitimately contain more than one source record that
+resolves to the same logical Finding within a single file (exact duplicate
+records, multiple evidence/attack-path records for one issue, or the same
+affected object reported under more than one module). `import_service.py`
+tracks fingerprints already seen **within the current import batch**
+(an in-memory set, checked before any Asset/Finding/FindingInstance work
+happens for a row) and coalesces any further match into the existing
+FindingInstance rather than attempting a second insert. These are counted
+separately as `duplicate_observations_coalesced` in the import summary —
+**not** as `new_findings` or `recurring_findings`, which describe
+cross-assessment history (did this logical issue exist before this file?),
+not repeats within one file.
+
+The whole per-assessment import (from creating the `Assessment` row through
+the final `db.commit()`) is one explicit atomic transaction — any exception
+anywhere in that span triggers an explicit `db.rollback()` before
+re-raising, so a failed import never leaves a partial Assessment/Finding/
+FindingInstance/Asset behind. An unexpected database error surfaces to the
+API caller as a generic `500` with no exception detail or assessment
+content — never a raw traceback.
+
 ## Import summary contract
 
 `POST /imports/pentera` accepts a `.json` or `.csv` file (dispatched by
@@ -244,7 +269,8 @@ extension) and returns, identically for either format:
   "unknown_mappings": 4,
   "new_findings": 12,
   "recurring_findings": 38,
-  "resolved_findings": 6
+  "resolved_findings": 6,
+  "duplicate_observations_coalesced": 2
 }
 ```
 
@@ -252,3 +278,9 @@ extension) and returns, identically for either format:
 `normalized_type = UNKNOWN` — i.e. the classifier didn't recognize the
 finding title/type, but it was imported anyway (never discarded solely for
 being unfamiliar), with the original title preserved.
+
+`duplicate_observations_coalesced` is the count of source records that
+resolved to a logical Finding already seen earlier in this same import —
+see "Intra-assessment duplicates" above. `rows_imported` still counts every
+source record processed (including duplicates); the duplicate count is how
+many of those `rows_imported` did not get their own FindingInstance.

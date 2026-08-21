@@ -2,6 +2,7 @@ import re
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -82,5 +83,17 @@ async def import_pentera(
         )
     except ParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        # import_service already rolled back its own transaction before
+        # re-raising; this is the last line of defense so an unexpected DB
+        # error (e.g. a constraint we didn't anticipate) never leaks an
+        # ASGI traceback or any assessment-content detail to the client —
+        # only the exception's class name is logged, never its message
+        # (which could theoretically echo bound parameter values).
+        log.error("Pentera import failed with an unexpected database error: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=500,
+            detail="Import failed due to an internal error. No partial data was saved.",
+        ) from exc
 
     return ImportSummaryOut(**summary.__dict__)
