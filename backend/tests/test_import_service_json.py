@@ -77,7 +77,7 @@ def test_json_repeated_import_dedups_same_as_csv_path(db_session):
 
     from app.services.fingerprint import compute_fingerprint
 
-    recurring_fp = compute_fingerprint("PASSWORD_NOT_REQUIRED", "corp.local", "svc_backup")
+    recurring_fp = compute_fingerprint("PASSWORD_NOT_REQUIRED", "corp.local", "svc_backup", "Password Not Required")
     assert findings_after_1[recurring_fp] == (
         db_session.query(Finding).filter(Finding.fingerprint == recurring_fp).first().id
     )

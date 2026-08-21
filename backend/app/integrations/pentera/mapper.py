@@ -6,7 +6,18 @@ change needed. Unrecognized findings are never a hard failure: they import as
 normalized_type=UNKNOWN, category=OTHER, with the original title AND
 severity preserved (an unfamiliar name is never a reason to lose useful
 remediation-tracking data).
+
+IMPORTANT: normalized_type/category are for classification/filtering only —
+they are deliberately NOT the sole identity of a Finding. Two Pentera
+Achievement names that map to the same normalized_type (e.g. "Password can
+be cracked using low GPU effort" and "...using high GPU effort", both
+WEAK_PASSWORD) remain separate, distinctly trackable Findings. Identity
+comes from `compute_fingerprint()`, which combines normalized_type with a
+canonicalized source title (see `_canonicalize_title()` and
+`NormalizedFinding.canonical_title` below) plus domain/asset — never
+normalized_type alone. See docs/PENTERA_IMPORT.md "Achievement identity".
 """
+import re
 from collections import Counter
 
 from app.integrations.pentera.schemas import NormalizedFinding, ParseResult, RawPenteraRow
@@ -14,20 +25,41 @@ from app.services.redaction import redact_inline_credentials
 
 # Ordered (normalized_type, category, [required keyword groups]) — first match wins.
 # Each keyword group is a list of alternative substrings; ALL groups must match
-# (i.e. groups are AND'd, alternatives within a group are OR'd).
+# (i.e. groups are AND'd, alternatives within a group are OR'd). Matching is
+# done against a CANONICALIZED title (see _canonicalize_title): lowercased,
+# with "-"/"_" collapsed to spaces, so "Password-Not-Required" matches the
+# same "not required" alternative as "Password Not Required".
+#
+# A normalized_type match here never merges two differently-named Pentera
+# findings into one Finding record -- see the module docstring and
+# services/fingerprint.py. It's fine, and expected, for several distinct
+# Achievement names to share one normalized_type/category.
 TYPE_RULES: list[tuple[str, str, list[list[str]]]] = [
     ("DCSYNC_EXPOSURE", "TIER_0", [["dcsync", "dc sync"]]),
     ("DOMAIN_ADMIN_MEMBERSHIP", "TIER_0", [["domain admin"]]),
-    ("PASSWORD_NOT_REQUIRED", "ACCOUNT_HYGIENE", [["password"], ["not required", "not_required"]]),
-    ("PASSWORD_NEVER_EXPIRES", "ACCOUNT_HYGIENE", [["password"], ["never expires", "does not expire"]]),
+    ("SAMR_EXPOSURE", "PRIVILEGE", [["security account manager", "samr"]]),
+    ("PASSWORD_NOT_REQUIRED", "ACCOUNT_HYGIENE", [["password"], ["not required"]]),
+    ("PASSWORD_NEVER_EXPIRES", "ACCOUNT_HYGIENE", [["password"], ["never expire", "does not expire"]]),
     ("REVERSIBLE_ENCRYPTION", "CREDENTIAL_EXPOSURE", [["reversible encryption"]]),
+    ("EMPTY_PASSWORD", "CREDENTIAL_EXPOSURE", [["empty password"]]),
     ("PASSWORD_REUSE", "CREDENTIAL_EXPOSURE", [["password reuse", "reused password", "password is reused"]]),
-    ("LEAKED_CREDENTIAL", "CREDENTIAL_EXPOSURE", [["leaked credential", "breached password", "leaked password"]]),
-    ("WEAK_PASSWORD", "CREDENTIAL_EXPOSURE", [["weak password", "cracked password", "password cracked"]]),
+    ("PASSWORD_REUSE", "CREDENTIAL_EXPOSURE", [["identical"], ["password"]]),
+    (
+        "LEAKED_CREDENTIAL",
+        "CREDENTIAL_EXPOSURE",
+        [["leaked credential", "breached password", "leaked password", "leaked cleartext password", "leaked username"]],
+    ),
+    (
+        "WEAK_PASSWORD",
+        "CREDENTIAL_EXPOSURE",
+        [["weak password", "cracked password", "password cracked", "password can be cracked", "crackable password"]],
+    ),
+    ("PASSWORD_POLICY_WEAKNESS", "POLICY_CONFIGURATION", [["password policy"]]),
+    ("PASSWORD_COMPLEXITY_WEAKNESS", "ACCOUNT_HYGIENE", [["password"], ["complexity"]]),
+    ("PASSWORD_AGE_WEAKNESS", "POLICY_CONFIGURATION", [["password"], ["age"]]),
     ("DORMANT_PRIVILEGED_ACCOUNT", "PRIVILEGE", [["dormant", "inactive", "stale"], ["privileged", "admin"]]),
     ("DELEGATION_RISK", "DELEGATION", [["delegation"]]),
     ("ACL_ABUSE", "PRIVILEGE", [["acl", "dacl"], ["abuse", "misconfigur", "weak"]]),
-    ("PASSWORD_POLICY_WEAKNESS", "POLICY_CONFIGURATION", [["password policy"]]),
     ("PRIVILEGED_GROUP_MEMBERSHIP", "PRIVILEGE", [["privileged group", "admin group"]]),
     ("SERVICE_ACCOUNT_RISK", "PRIVILEGE", [["service account"]]),
     ("TRUST_RISK", "TRUST", [["trust"]]),
@@ -129,9 +161,22 @@ def _normalize_asset_type(raw: str | None) -> str:
     return ASSET_TYPE_ALIASES.get(raw.strip().lower(), "unknown")
 
 
+def _canonicalize_title(title: str) -> str:
+    """Canonical form used both for TYPE_RULES keyword matching and as the
+    fingerprint discriminator (see NormalizedFinding.canonical_title /
+    services/fingerprint.py). Lowercases, collapses "-"/"_" to spaces (so
+    "Password-Not-Required" and "password_not_required" match the same
+    space-separated keyword phrases), and collapses whitespace. Word
+    content is otherwise preserved verbatim -- this normalizes formatting
+    variance, not meaning, so it never merges two genuinely different
+    finding names."""
+    normalized = re.sub(r"[-_]+", " ", title.strip().lower())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
 def classify(title: str) -> tuple[str, str]:
     """Return (normalized_type, category) for a raw finding title."""
-    lowered = title.lower()
+    lowered = _canonicalize_title(title)
     for normalized_type, category, groups in TYPE_RULES:
         if all(any(kw in lowered for kw in group) for group in groups):
             return normalized_type, category
@@ -206,6 +251,7 @@ def map_rows(rows: list[RawPenteraRow]) -> ParseResult:
                 category=row.category or category,
                 title=title if normalized_type != "UNKNOWN" else title,
                 source_title=title,
+                canonical_title=_canonicalize_title(title),
                 severity=severity,
                 # Redact any "key: value" / "key=value" credential pattern
                 # embedded in free text (defense in depth beyond the

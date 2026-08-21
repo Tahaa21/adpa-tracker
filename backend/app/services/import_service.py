@@ -271,7 +271,15 @@ def _import_parsed_rows(
         occurrence_count_by_fingerprint: dict[str, int] = {}
 
         for nf in result.findings:
-            fingerprint = compute_fingerprint(nf.normalized_type, nf.domain, nf.asset_external_identifier)
+            # canonical_title is part of identity, not just normalized_type
+            # -- see services/fingerprint.py's module docstring and
+            # docs/PENTERA_IMPORT.md "Achievement identity" for why: many
+            # distinct Pentera Achievement names are either UNKNOWN or share
+            # one normalized_type/category, and must not collapse into one
+            # Finding just because normalized_type/domain/asset match.
+            fingerprint = compute_fingerprint(
+                nf.normalized_type, nf.domain, nf.asset_external_identifier, nf.canonical_title
+            )
 
             if fingerprint in seen_fingerprints:
                 occurrence_count_by_fingerprint[fingerprint] = occurrence_count_by_fingerprint.get(fingerprint, 1) + 1

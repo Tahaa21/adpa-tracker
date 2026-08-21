@@ -102,6 +102,16 @@ export default function FindingDetail() {
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <Info label="Category"><CategoryBadge category={finding.category} /></Info>
               <Info label="Severity"><SeverityBadge severity={finding.severity} /></Info>
+              {finding.pentera_numeric_severity != null && (
+                <Info label="Pentera Severity (source)" value={String(finding.pentera_numeric_severity)} mono />
+              )}
+              <Info label="Tracker Risk Score" value={`${finding.risk_score} / 100`} mono />
+              {finding.occurrence_count > 1 && (
+                <Info
+                  label="Occurrence Count"
+                  value={`${finding.occurrence_count.toLocaleString()} (latest assessment)`}
+                />
+              )}
               <Info label="Original Source Title" value={(finding.source_metadata?.source_title as string) ?? finding.title} />
               <Info label="Fingerprint" value={finding.fingerprint.slice(0, 16) + '…'} mono />
               <Info label="First Seen" value={formatDate(finding.first_seen)} />
@@ -133,6 +143,9 @@ export default function FindingDetail() {
                     <Link to={`/assessments/${inst.assessment_id}`} className="text-sky-400 hover:underline">
                       Assessment #{inst.assessment_id}
                     </Link>
+                    {inst.occurrence_count > 1 && (
+                      <span className="text-xs text-slate-500">×{inst.occurrence_count.toLocaleString()}</span>
+                    )}
                     <span className="text-slate-500">{formatDate(inst.observed_at)}</span>
                     {inst.source_severity && <SeverityBadge severity={inst.source_severity} />}
                   </li>

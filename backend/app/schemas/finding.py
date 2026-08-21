@@ -16,6 +16,7 @@ class FindingInstanceOut(BaseModel):
     source_severity: str | None = None
     source_title: str | None = None
     observed_at: date
+    occurrence_count: int = 1
 
 
 class FindingListItem(BaseModel):
@@ -34,6 +35,14 @@ class FindingListItem(BaseModel):
     currently_present: bool
     asset: AssetOut
     owner: OwnerOut | None = None
+    # Raw Pentera numeric severity (e.g. 8.3), shown alongside risk_score --
+    # None for CSV imports / findings without a numeric source severity.
+    # Not a CVSS claim. See Finding.pentera_numeric_severity.
+    pentera_numeric_severity: float | None = None
+    # How many source records coalesced into the most recent
+    # FindingInstance (e.g. Pentera's own "239 occurrences" count for an
+    # Achievement type). 1 for a normal, non-duplicated finding.
+    occurrence_count: int = 1
 
 
 class FindingDetail(FindingListItem):

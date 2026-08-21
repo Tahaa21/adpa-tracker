@@ -53,6 +53,7 @@ export interface FindingInstance {
   source_severity?: string | null
   source_title?: string | null
   observed_at: string
+  occurrence_count: number
 }
 
 export interface Remediation {
@@ -92,6 +93,13 @@ export interface FindingListItem {
   currently_present: boolean
   asset: Asset
   owner?: Owner | null
+  // Raw Pentera numeric severity (e.g. 8.3), shown alongside risk_score --
+  // null for CSV imports / findings without a numeric source severity.
+  pentera_numeric_severity?: number | null
+  // How many source records coalesced into the most recent
+  // FindingInstance (e.g. Pentera's own "239 occurrences" count for an
+  // Achievement type). 1 for a normal, non-duplicated finding.
+  occurrence_count: number
 }
 
 export interface FindingDetail extends FindingListItem {

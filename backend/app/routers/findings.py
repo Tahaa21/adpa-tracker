@@ -22,7 +22,9 @@ def list_findings(
     owner_id: int | None = None,
     currently_present: bool | None = None,
 ):
-    query = db.query(Finding).options(joinedload(Finding.asset), joinedload(Finding.owner))
+    query = db.query(Finding).options(
+        joinedload(Finding.asset), joinedload(Finding.owner), joinedload(Finding.instances)
+    )
     query = query.join(Asset, Finding.asset_id == Asset.id)
 
     if search:

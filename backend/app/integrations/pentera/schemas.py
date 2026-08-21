@@ -44,6 +44,13 @@ class NormalizedFinding(BaseModel):
     category: str
     title: str
     source_title: str
+    # Canonicalized (lowercased, hyphen/underscore-normalized,
+    # whitespace-collapsed) form of source_title -- used as the
+    # fingerprinting discriminator so distinct Pentera finding/Achievement
+    # names never collide just because normalized_type/domain/asset happen
+    # to match (see services/fingerprint.py and mapper.py's
+    # _canonicalize_title()). Always non-empty when title is non-empty.
+    canonical_title: str
     severity: str
     description: str | None = None
     remediation_guidance: str | None = None

@@ -202,10 +202,108 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-21 (ninth checkpoint — Pentera ADPA achievements vs.
-vulnerabilities adaptation)._
+_Last updated: 2026-08-21 (tenth checkpoint — achievement identity /
+fingerprint collision fix)._
 
-**New this checkpoint**: the first real local Pentera ADPA JSON import
+**New this checkpoint**: the second real local Pentera ADPA JSON import
+(operational since the ninth checkpoint below) surfaced that the tracker
+collapsed 16k+ achievement objects — spanning many distinct real Pentera
+Achievement types (e.g. "Using empty password(s)", "Password can be
+cracked using low/high GPU effort", "Leaked cleartext password matches...",
+"Security Account Manager Remote Protocol...") — down to only **7 logical
+Findings**, most attached to a generic `Unknown Asset`. Root cause: the
+fingerprint discriminator defaulted to `normalized_type`, and most real
+Achievement names either don't match any `TYPE_RULES` keyword (→
+`normalized_type = UNKNOWN`) or have no specific affected-object parameter
+(→ asset falls back to the domain). Every achievement of that shape,
+regardless of its actual name, produced the identical fingerprint
+`UNKNOWN|domain|domain|UNKNOWN` and silently coalesced together. Per
+explicit instruction, the real assessment file was never requested or
+inspected — this was diagnosed and fixed from the reported symptom (7
+findings, many `Unknown Asset`) and the visible list of real Achievement
+type names in the Pentera UI (titles only, no real values/domains/users).
+
+- [x] `services/fingerprint.py` / `mapper.py`: fingerprint identity now
+      includes a canonicalized source title (`NormalizedFinding
+      .canonical_title`, new field) as the discriminator, replacing the old
+      "defaults to normalized_type" behavior. Applies uniformly to CSV and
+      both JSON paths (generic and achievement) — not just `UNKNOWN`
+      findings: two *classified* Achievement names sharing one
+      normalized_type (e.g. two different `WEAK_PASSWORD` cracking-effort
+      variants) now stay separately identified too, since normalized_type
+      was never meant to be identity, only classification. Documented
+      tradeoff: a renamed Achievement string between assessment runs is now
+      treated as a new Finding rather than a recurrence, until evidence
+      shows that actually happens.
+- [x] `mapper.py` `TYPE_RULES` expanded with explicit mappings for
+      patterns visible in the real Pentera UI's Achievement list: empty
+      passwords (`EMPTY_PASSWORD`), SAMR/Security Account Manager exposure
+      (`SAMR_EXPOSURE`), password complexity (`PASSWORD_COMPLEXITY_WEAKNESS`),
+      password age (`PASSWORD_AGE_WEAKNESS`), plus broadened existing rules:
+      leaked cleartext password / leaked username → `LEAKED_CREDENTIAL`;
+      "password can be cracked" (any GPU-effort/dictionary variant) →
+      `WEAK_PASSWORD`; identical-password reuse → `PASSWORD_REUSE`. New
+      `_canonicalize_title()` normalizes `-`/`_` to spaces before keyword
+      matching, so `"Password-Not-Required"` matches the same rule as
+      `"Password Not Required"`. Unmapped names still import fine as
+      `UNKNOWN` — per explicit instruction, that's acceptable; the
+      requirement was that UNKNOWN findings stay *distinct*, not that every
+      name gets a taxonomy entry.
+- [x] `Finding` model gained `pentera_numeric_severity` and
+      `occurrence_count` convenience properties (no migration — computed
+      from existing `source_metadata`/`instances` data), surfaced in
+      `FindingListItem`/`FindingDetail`/`FindingInstanceOut`. UI: Findings
+      table shows a small "Pentera: 7.4" line under the severity badge and
+      a "×239" occurrence badge next to the title (only when > 1, table
+      stays uncluttered otherwise); Finding detail shows "Pentera Severity
+      (source)" and "Tracker Risk Score" as separate fields, plus an
+      "Occurrence Count" row and a per-assessment "×N" badge in Assessment
+      History.
+- [x] Tests: 8 new in `test_pentera_achievements.py` proving the exact
+      collapse scenario and its fix with synthetic data only — two
+      different UNKNOWN achievements with identical domain/no-asset produce
+      two Findings (not one); the same achievement name repeated 239 times
+      produces one Finding with `occurrence_count=239`; the same name with
+      distinct affected assets (userA/B/C) stays separated per-asset;
+      three different password-cracking achievement names sharing
+      `WEAK_PASSWORD` stay distinct with independently-preserved numeric
+      severities; 20 distinct unmapped names at scale each produce their
+      own Finding; cross-assessment recurrence (same achievement, 3
+      occurrences in assessment A then 5 in assessment B) still correctly
+      recognizes the recurring Finding with per-assessment occurrence
+      counts; a CSV regression check; and a comprehensive 18-distinct-name
+      scenario (matching the real Pentera UI's visible type list, ≥15 as
+      required) verifying both the exact Finding count and each one's
+      normalized_type/occurrence_count. Existing compute_fingerprint call
+      sites in `test_import_service.py`/`test_import_service_json.py`/
+      `test_import_deduplication.py` updated to pass the matching title
+      discriminator (fingerprint identity changed for every import path,
+      not just achievements). **123 total backend tests pass** (115
+      pre-existing + 8 net new — several existing tests were updated in
+      place rather than added), frontend build+lint clean.
+- [x] Live-verified end-to-end via `./start.sh` against a **fresh, reset
+      local DB** (the DB from the incorrect-collapsing logic was deleted,
+      not migrated/repaired, per explicit instruction) with a synthetic
+      1,193-achievement/18-distinct-type JSON (mirroring the real Pentera
+      UI's visible list, occurrence counts in the hundreds/low-thousands
+      like the real 239/205/2570/4578 examples given): API response and
+      direct DB query both confirmed exactly 18 `remediation_findings_created`
+      (not 7), each with the correct `occurrence_count` and an
+      independently-preserved `pentera_numeric_severity`. Re-verified in the
+      real browser UI (not just curl): Findings page showed "18 findings";
+      opening one confirmed "Pentera Severity (source): 7.4" shown
+      separately from "Tracker Risk Score: 50 / 100", "Occurrence Count:
+      120 (latest assessment)", and a matching "×120" badge in Assessment
+      History.
+- [x] Docs updated: `docs/PENTERA_IMPORT.md` gained a new "Achievement
+      identity" section (the full incident writeup: root cause, fix,
+      documented tradeoff), an expanded normalized_type mapping table, and
+      numeric-severity/occurrence-count UI-surfacing notes; this file.
+
+_Prior checkpoint (ninth) — Pentera ADPA achievements vs. vulnerabilities
+adaptation:_
+
+**New that checkpoint**: the first real local Pentera ADPA JSON import
 (commit `e123ae9` and earlier) surfaced that the real export's top-level
 structure is two large collections — `achievements` (~16k objects, the
 real remediation-finding source) and `vulnerabilities` (~15k objects,
@@ -618,22 +716,25 @@ python3 scripts/load_sample_data.py http://localhost:8000
 brings it up fully working (backend on :8000, frontend on :5173, sample
 data loadable in one command). Three open items remain, none blocking:
 
-1. **Run a SECOND real Pentera ADPA JSON import** to confirm the
-   achievements-vs-vulnerabilities adaptation (this checkpoint) actually
-   fixes the real-world problem observed in the first real import (23
-   usable findings buried in 11,635 warnings). Watch specifically for:
-   `achievements_discovered` matching the real achievements collection
-   size, a plausible `remediation_findings_created` count (should be much
-   smaller than `rows_processed`, not ~equal to it), `unknown_mappings`
-   dropping sharply now that achievement names are classified via the same
-   `TYPE_RULES` as CSV (may still be nonzero — that's fine, unknown
-   findings stay useful), and warnings that are few and aggregated rather
-   than thousands of near-duplicates. If any achievement `parameters` key
-   beyond `Domain`/`Account`/etc. turns out to matter for asset scope,
-   extend `ACHIEVEMENT_SCOPE_PARAMETER_KEYS` in `json_parser.py` — targeted
-   fix, not a redesign. Do not request or inspect the real file itself;
-   work only from aggregate counts/warnings and further sanitized samples,
-   same discipline as this checkpoint.
+1. **Run a THIRD real Pentera ADPA JSON import** against a fresh local DB
+   (the DB from the incorrect-collapsing logic was deleted this checkpoint,
+   not migrated/repaired) to confirm the achievement-identity fix actually
+   fixes the real-world collapse-to-7 problem. Watch specifically for:
+   `remediation_findings_created` roughly matching the number of distinct
+   Achievement types visible in the real Pentera UI (not collapsing to a
+   small number again), `occurrence_count` on each Finding roughly matching
+   the real UI's per-type occurrence count, no `Unknown Asset` findings
+   where a real Pentera UI screenshot shows a specific affected object,
+   `unknown_mappings` still nonzero is fine (unknown findings stay
+   distinct and useful — that's the point) but should mostly resolve to
+   *sensible, distinct* titles rather than one dominant catch-all. If a
+   real Achievement `parameters` key beyond what
+   `ACHIEVEMENT_SCOPE_PARAMETER_KEYS` covers turns out to matter for asset
+   scope, or a visible Achievement name doesn't classify the way you'd
+   expect, both are targeted one-line fixes in `json_parser.py`/
+   `mapper.py` — not a redesign. Do not request or inspect the real file
+   itself; work only from aggregate counts/warnings/UI screenshots and
+   further sanitized samples, same discipline as every checkpoint so far.
 2. **Verify `start.ps1`/`stop.ps1` on an actual Windows machine.** Written
    to mirror `start.sh` exactly, syntax-reviewed carefully, but never
    executed — no Windows/pwsh available in this dev environment. Run it,

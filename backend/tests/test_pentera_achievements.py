@@ -275,12 +275,296 @@ def test_achievements_discovered_zero_for_csv_import(db_session):
 # --- (9): warning aggregation for many duplicate-cause achievements ---------
 
 
-def test_warning_aggregation_for_many_unknown_achievements(db_session):
+# ============================================================================
+# Achievement identity / fingerprint collision-prevention tests
+#
+# A second real Pentera ADPA import (16k+ achievement objects across many
+# distinct Achievement types) produced only 7 logical Findings in the
+# tracker, most showing "Unknown Asset". Root cause: the fingerprint
+# combined only normalized_type + domain + asset. When normalized_type was
+# UNKNOWN (an unmapped achievement name -- the common case, since most real
+# Achievement names don't match any TYPE_RULES keyword pattern) and asset
+# fell back to a domain-level scope (no specific parameter identified an
+# individual object), EVERY such achievement -- regardless of its actual
+# name -- produced the exact same fingerprint and collapsed into one
+# Finding. Fixed by folding a canonicalized source title into the
+# fingerprint discriminator (see services/fingerprint.py,
+# mapper.py's canonical_title). These tests prove the fix using only
+# synthetic achievement names -- the real file was never requested or
+# inspected, per explicit instruction.
+# ============================================================================
+
+
+def test_two_different_unknown_achievements_same_domain_no_asset_produce_two_findings(db_session):
+    import datetime
+
+    # Neither name matches any TYPE_RULES keyword pattern -- both stay
+    # UNKNOWN, both have only a Domain parameter (no specific affected
+    # object), so both fall back to the exact same (domain, domain)
+    # asset/identifier pair. Before this fix, they collapsed into one
+    # Finding purely because normalized_type/domain/asset all matched.
+    data = {
+        "achievements": [
+            _achievement("Zebra Widget Nonstandard Check Alpha", 4.0, achievement_id="a1"),
+            _achievement("Zebra Widget Nonstandard Check Beta", 4.0, achievement_id="a2"),
+        ]
+    }
+    summary = import_pentera_json(
+        db_session, _bytes(data), name="A1", assessment_date=datetime.date(2026, 8, 1),
+        environment="fabrikam.local", source_filename="synthetic.json", notes=None,
+    )
+    assert summary.remediation_findings_created == 2
+    findings = db_session.query(Finding).order_by(Finding.title).all()
+    assert len(findings) == 2
+    assert {f.title for f in findings} == {
+        "Zebra Widget Nonstandard Check Alpha",
+        "Zebra Widget Nonstandard Check Beta",
+    }
+    assert all(f.normalized_type == "UNKNOWN" for f in findings)
+    assert all(f.asset.name == "fabrikam.local" for f in findings)
+
+
+def test_same_achievement_name_repeated_239_times_is_one_finding(db_session):
     import datetime
 
     data = {
         "achievements": [
-            _achievement("Using empty password(s)", 5.0, achievement_id=f"a{i}", extra_parameters={"Account": f"user{i}"})
+            _achievement("Using empty password(s)", 5.0, achievement_id=f"a{i}")
+            for i in range(239)
+        ]
+    }
+    summary = import_pentera_json(
+        db_session, _bytes(data), name="A1", assessment_date=datetime.date(2026, 8, 1),
+        environment="fabrikam.local", source_filename="synthetic.json", notes=None,
+    )
+    assert summary.remediation_findings_created == 1
+    assert summary.duplicate_observations_coalesced == 238
+
+    findings = db_session.query(Finding).all()
+    assert len(findings) == 1
+    instances = db_session.query(FindingInstance).all()
+    assert len(instances) == 1
+    assert instances[0].occurrence_count == 239
+
+
+def test_same_achievement_name_distinct_assets_stay_separate(db_session):
+    import datetime
+
+    data = {
+        "achievements": [
+            _achievement("Password can be cracked using low GPU effort", 6.0, achievement_id="a1", extra_parameters={"Account": "userA"}),
+            _achievement("Password can be cracked using low GPU effort", 6.0, achievement_id="a2", extra_parameters={"Account": "userB"}),
+            _achievement("Password can be cracked using low GPU effort", 6.0, achievement_id="a3", extra_parameters={"Account": "userC"}),
+        ]
+    }
+    summary = import_pentera_json(
+        db_session, _bytes(data), name="A1", assessment_date=datetime.date(2026, 8, 1),
+        environment="fabrikam.local", source_filename="synthetic.json", notes=None,
+    )
+    assert summary.remediation_findings_created == 3
+    assert summary.duplicate_observations_coalesced == 0
+    findings = db_session.query(Finding).all()
+    assert len(findings) == 3
+    assert {f.asset.name for f in findings} == {"userA", "userB", "userC"}
+    assert all(f.title == "Password can be cracked using low GPU effort" for f in findings)
+    assert all(f.occurrence_count == 1 for f in findings)
+
+
+def test_different_password_cracking_achievement_names_remain_distinct(db_session):
+    import datetime
+
+    titles_and_severities = [
+        ("Password can be cracked using low GPU effort", 3.0),
+        ("Password can be cracked using high GPU effort", 6.0),
+        ("Password can be cracked using a custom dictionary attack", 9.0),
+    ]
+    data = {
+        "achievements": [
+            _achievement(title, severity, achievement_id=f"a{i}")
+            for i, (title, severity) in enumerate(titles_and_severities)
+        ]
+    }
+    summary = import_pentera_json(
+        db_session, _bytes(data), name="A1", assessment_date=datetime.date(2026, 8, 1),
+        environment="fabrikam.local", source_filename="synthetic.json", notes=None,
+    )
+    # All three share normalized_type=WEAK_PASSWORD/category=CREDENTIAL_EXPOSURE
+    # (same category is fine and expected) but must remain three distinct,
+    # separately trackable Findings.
+    assert summary.remediation_findings_created == 3
+    findings = {f.title: f for f in db_session.query(Finding).all()}
+    assert len(findings) == 3
+    for title, severity in titles_and_severities:
+        f = findings[title]
+        assert f.normalized_type == "WEAK_PASSWORD"
+        assert f.category == "CREDENTIAL_EXPOSURE"
+        # (5) Numeric Pentera severity retained independently per finding,
+        # not shared/overwritten across the three.
+        assert f.pentera_numeric_severity == severity
+
+
+def test_missing_asset_does_not_collide_unrelated_findings_at_scale(db_session):
+    """(7) Generalizes the two-title case to 20 distinct unmapped
+    achievement names, all domain-only (no specific affected object) --
+    the exact shape of the real-world collapse-to-7 bug."""
+    import datetime
+
+    titles = [f"Zebra Widget Nonstandard Check {i:02d}" for i in range(20)]
+    data = {"achievements": [_achievement(t, 5.0, achievement_id=f"a{i}") for i, t in enumerate(titles)]}
+    summary = import_pentera_json(
+        db_session, _bytes(data), name="A1", assessment_date=datetime.date(2026, 8, 1),
+        environment="fabrikam.local", source_filename="synthetic.json", notes=None,
+    )
+    assert summary.remediation_findings_created == 20
+    assert db_session.query(Finding).count() == 20
+
+
+def test_cross_assessment_recurrence_still_works_with_title_based_fingerprint(db_session):
+    """(6)/(8)/(9): parameters.Domain recognized, cross-assessment dedup
+    still works, and recurrence across assessments A/B is tracked
+    correctly -- the title-based fingerprint change must not break the
+    existing recurring/resolved logic, only fix the collision bug."""
+    import datetime
+
+    date_a = datetime.date(2026, 8, 1)
+    date_b = datetime.date(2026, 9, 1)
+
+    payload_a = {
+        "achievements": [
+            _achievement("Password(s) stored in reversible encryption", 8.3, achievement_id=f"a{i}")
+            for i in range(3)
+        ]
+    }
+    summary_a = import_pentera_json(
+        db_session, _bytes(payload_a), name="A1", assessment_date=date_a,
+        environment="fabrikam.local", source_filename="a.json", notes=None,
+    )
+    assert summary_a.new_findings == 1
+    assert summary_a.recurring_findings == 0
+
+    finding = db_session.query(Finding).one()
+    assert finding.asset.domain == "fabrikam.local"
+    first_instance_count = finding.occurrence_count
+    assert first_instance_count == 3
+
+    # Second assessment: same logical achievement recurs, this time
+    # observed 5 times -- must be recognized as the SAME Finding
+    # (recurring, not new), with a SEPARATE FindingInstance for assessment
+    # B carrying its own occurrence_count.
+    payload_b = {
+        "achievements": [
+            _achievement("Password(s) stored in reversible encryption", 8.3, achievement_id=f"b{i}")
+            for i in range(5)
+        ]
+    }
+    summary_b = import_pentera_json(
+        db_session, _bytes(payload_b), name="A2", assessment_date=date_b,
+        environment="fabrikam.local", source_filename="b.json", notes=None,
+    )
+    assert summary_b.new_findings == 0
+    assert summary_b.recurring_findings == 1
+    assert db_session.query(Finding).count() == 1  # still the same one logical Finding
+
+    db_session.refresh(finding)
+    assert len(finding.instances) == 2
+    # Latest instance (assessment B) reflects its own occurrence count;
+    # assessment A's instance is untouched.
+    assert finding.instances[0].occurrence_count == 3  # assessment A
+    assert finding.instances[1].occurrence_count == 5  # assessment B
+    assert finding.occurrence_count == 5  # Finding.occurrence_count == latest instance
+
+
+def test_csv_two_different_findings_same_asset_remain_distinct(db_session):
+    """(10) CSV regression: two different logical findings on the exact
+    same asset/domain must remain distinct after the fingerprint change --
+    unaffected by the achievement-specific work, but worth asserting
+    directly since compute_fingerprint's call site changed for every
+    import path, not just achievements."""
+    import datetime
+
+    from app.services.import_service import import_pentera_csv
+
+    csv_content = (
+        b"Finding,Severity,Target,Object Type,Domain\n"
+        b"Password Not Required,High,svc_backup,service_account,fabrikam.local\n"
+        b"Weak Password,Medium,svc_backup,service_account,fabrikam.local\n"
+    )
+    summary = import_pentera_csv(
+        db_session, csv_content, name="A1", assessment_date=datetime.date(2026, 8, 1),
+        environment="fabrikam.local", source_filename="a.csv", notes=None,
+    )
+    assert summary.new_findings == 2
+    assert db_session.query(Finding).count() == 2
+
+
+def test_at_least_15_distinct_real_achievement_names_produce_correct_finding_count(db_session):
+    """Verification requirement: a synthetic Achievement set containing at
+    least 15 distinct names (drawn from the real Pentera UI's visible
+    Achievement type list, values/domain synthetic) with repeated
+    occurrences must produce exactly that many logical Findings -- not
+    collapse toward a small number the way the real second import did."""
+    import datetime
+
+    # title -> (repeat_count, expected_normalized_type)
+    achievements_spec: dict[str, tuple[int, str]] = {
+        "Using empty password(s)": (239, "EMPTY_PASSWORD"),
+        "Password(s) stored in reversible encryption": (1, "REVERSIBLE_ENCRYPTION"),
+        "Leaked cleartext password matches a known breach": (205, "LEAKED_CREDENTIAL"),
+        # Matches LEAKED_CREDENTIAL (checked before WEAK_PASSWORD) because
+        # it contains "leaked credential" -- a reasonable classification
+        # given the phrasing; the point of this test is distinct-Finding
+        # count and per-title occurrence_count, not the exact type chosen.
+        "Password can be cracked leveraging leaked credentials": (2570, "LEAKED_CREDENTIAL"),
+        "Leaked cleartext password closely matches account password": (12, "LEAKED_CREDENTIAL"),
+        "Leaked username matches domain account naming convention": (45, "LEAKED_CREDENTIAL"),
+        "Found users with Password-Not-Required flag set": (33, "PASSWORD_NOT_REQUIRED"),
+        "Password can be cracked using low GPU effort": (88, "WEAK_PASSWORD"),
+        "Password can be cracked using a custom dictionary attack": (19, "WEAK_PASSWORD"),
+        "Found users with Password-Never-Expire flag set": (120, "PASSWORD_NEVER_EXPIRES"),
+        "Found low complexity level password that not enough": (9, "PASSWORD_COMPLEXITY_WEAKNESS"),
+        "Found password(s) with password(s) age greater than policy": (64, "PASSWORD_AGE_WEAKNESS"),
+        "Found password(s) that do not adhere to the password policy": (3, "PASSWORD_POLICY_WEAKNESS"),
+        "Password can be cracked using high GPU effort": (4578, "WEAK_PASSWORD"),
+        "Found several non-admin users with identical passwords": (7, "PASSWORD_REUSE"),
+        "Possibly too many domain administrators": (1, "DOMAIN_ADMIN_MEMBERSHIP"),
+        "Password age permitted is too long": (15, "PASSWORD_AGE_WEAKNESS"),
+        "Security Account Manager Remote Protocol exposure": (2, "SAMR_EXPOSURE"),
+    }
+    assert len(achievements_spec) >= 15
+
+    achievement_objs = []
+    counter = 0
+    for title, (count, _expected_type) in achievements_spec.items():
+        for _ in range(count):
+            achievement_objs.append(_achievement(title, 6.0, achievement_id=f"a{counter}"))
+            counter += 1
+
+    data = {"achievements": achievement_objs}
+    summary = import_pentera_json(
+        db_session, _bytes(data), name="A1", assessment_date=datetime.date(2026, 8, 1),
+        environment="fabrikam.local", source_filename="synthetic.json", notes=None,
+    )
+
+    assert summary.achievements_discovered == sum(c for c, _ in achievements_spec.values())
+    assert summary.remediation_findings_created == len(achievements_spec)
+
+    findings_by_title = {f.title: f for f in db_session.query(Finding).all()}
+    assert len(findings_by_title) == len(achievements_spec)
+    for title, (count, expected_type) in achievements_spec.items():
+        f = findings_by_title[title]
+        assert f.normalized_type == expected_type, f"{title!r} expected {expected_type}, got {f.normalized_type}"
+        assert f.occurrence_count == count, f"{title!r} expected occurrence_count={count}, got {f.occurrence_count}"
+
+
+def test_warning_aggregation_for_many_unknown_achievements(db_session):
+    import datetime
+
+    # "Zebra Widget Nonstandard Check" deliberately matches no TYPE_RULES
+    # keyword pattern -- stays UNKNOWN so this test exercises warning
+    # aggregation, not the (separately tested) mapping expansion.
+    data = {
+        "achievements": [
+            _achievement("Zebra Widget Nonstandard Check Zeta-99", 5.0, achievement_id=f"a{i}", extra_parameters={"Account": f"user{i}"})
             for i in range(50)
         ]
     }
@@ -290,7 +574,7 @@ def test_warning_aggregation_for_many_unknown_achievements(db_session):
     )
     assert summary.unknown_mappings == 50
     # One aggregated warning, not fifty near-identical ones.
-    matching = [w for w in summary.warnings if "Using empty password(s)" in w and "imported as UNKNOWN" in w]
+    matching = [w for w in summary.warnings if "Zebra Widget Nonstandard Check Zeta-99" in w and "imported as UNKNOWN" in w]
     assert len(matching) == 1
     assert "50 observation(s)" in matching[0]
     assert len(summary.warnings) < 10

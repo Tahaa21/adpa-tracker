@@ -68,7 +68,7 @@ def test_repeated_import_reuses_finding_for_recurring_issue(db_session):
     # The recurring finding kept its identity (same row id) across imports.
     from app.services.fingerprint import compute_fingerprint
 
-    recurring_fp = compute_fingerprint("PASSWORD_NOT_REQUIRED", "corp.local", "svc_backup")
+    recurring_fp = compute_fingerprint("PASSWORD_NOT_REQUIRED", "corp.local", "svc_backup", "Password Not Required")
     assert findings_after_1[recurring_fp] == (
         db_session.query(Finding).filter(Finding.fingerprint == recurring_fp).first().id
     )
@@ -84,7 +84,7 @@ def test_resolved_finding_marked_not_currently_present(db_session):
 
     from app.services.fingerprint import compute_fingerprint
 
-    resolved_fp = compute_fingerprint("DOMAIN_ADMIN_MEMBERSHIP", "corp.local", "jsmith")
+    resolved_fp = compute_fingerprint("DOMAIN_ADMIN_MEMBERSHIP", "corp.local", "jsmith", "Domain Admin Membership")
     resolved_finding = db_session.query(Finding).filter(Finding.fingerprint == resolved_fp).first()
     assert resolved_finding.currently_present is False
     # First/last seen still reflect when it *was* observed, for history.
@@ -97,7 +97,7 @@ def test_reimporting_a_validated_finding_reopens_it(db_session):
 
     from app.services.fingerprint import compute_fingerprint
 
-    fp = compute_fingerprint("PASSWORD_NOT_REQUIRED", "corp.local", "svc_backup")
+    fp = compute_fingerprint("PASSWORD_NOT_REQUIRED", "corp.local", "svc_backup", "Password Not Required")
     finding = db_session.query(Finding).filter(Finding.fingerprint == fp).first()
     finding.status = "VALIDATED"
     db_session.commit()

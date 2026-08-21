@@ -55,3 +55,25 @@ class Finding(Base):
     validations: Mapped[list["ValidationRecord"]] = relationship(  # noqa: F821
         back_populates="finding", cascade="all, delete-orphan", order_by="ValidationRecord.validation_date"
     )
+
+    @property
+    def pentera_numeric_severity(self) -> float | None:
+        """The raw Pentera numeric severity (e.g. 8.3) preserved in
+        source_metadata, shown in the UI alongside — not instead of — our
+        own risk_score/priority so the source score stays visible. None for
+        CSV imports or any finding without a numeric source severity. Not a
+        CVSS claim -- see mapper.py's NUMERIC_SEVERITY_THRESHOLDS."""
+        if not self.source_metadata:
+            return None
+        value = self.source_metadata.get("pentera_numeric_severity")
+        return value if isinstance(value, (int, float)) else None
+
+    @property
+    def occurrence_count(self) -> int:
+        """How many source records coalesced into this Finding's most
+        recent FindingInstance (see FindingInstance.occurrence_count) --
+        i.e. the current affected-object count as of the latest assessment,
+        not summed across assessment history. 1 if never observed."""
+        if not self.instances:
+            return 1
+        return self.instances[-1].occurrence_count

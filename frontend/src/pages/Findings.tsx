@@ -146,6 +146,14 @@ export default function Findings() {
                     <Link to={`/findings/${f.id}`} className="font-medium text-sky-400 hover:underline">
                       {f.title}
                     </Link>
+                    {f.occurrence_count > 1 && (
+                      <span
+                        className="ml-2 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-400"
+                        title={`${f.occurrence_count} occurrences coalesced into this finding`}
+                      >
+                        ×{f.occurrence_count.toLocaleString()}
+                      </span>
+                    )}
                     {!f.currently_present && <div className="text-[11px] text-slate-500">No longer observed</div>}
                   </td>
                   <td className="px-4 py-3">
@@ -157,6 +165,9 @@ export default function Findings() {
                   </td>
                   <td className="px-4 py-3">
                     <SeverityBadge severity={f.severity} />
+                    {f.pentera_numeric_severity != null && (
+                      <div className="text-[11px] text-slate-500">Pentera: {f.pentera_numeric_severity}</div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-slate-300">
                     {f.owner ? ownerMap.get(f.owner.id)?.name ?? f.owner.name : <span className="text-slate-600">Unassigned</span>}

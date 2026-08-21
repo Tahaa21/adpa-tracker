@@ -117,7 +117,7 @@ def test_superficially_different_records_same_fingerprint_one_instance(db_sessio
     assert summary.duplicate_observations_coalesced == 1
     assert db_session.query(FindingInstance).count() == 1
 
-    fp = compute_fingerprint("WEAK_PASSWORD", "dedup.local", "svc_test")
+    fp = compute_fingerprint("WEAK_PASSWORD", "dedup.local", "svc_test", "Weak Password")
     finding = db_session.query(Finding).filter(Finding.fingerprint == fp).first()
     assert finding is not None
 
@@ -159,7 +159,7 @@ def test_recurring_across_assessments_and_duplicate_within_one(db_session):
     assert db_session.query(Finding).count() == 1
     assert db_session.query(FindingInstance).count() == 2
 
-    fp = compute_fingerprint("DOMAIN_ADMIN_MEMBERSHIP", "dedup.local", "jsmith")
+    fp = compute_fingerprint("DOMAIN_ADMIN_MEMBERSHIP", "dedup.local", "jsmith", "Domain Admin Membership")
     finding = db_session.query(Finding).filter(Finding.fingerprint == fp).first()
     assert len(finding.instances) == 2
     instance_assessment_ids = {i.assessment_id for i in finding.instances}

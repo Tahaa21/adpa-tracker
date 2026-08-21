@@ -133,22 +133,35 @@ for a 0–10 scale. If real Pentera documentation establishes a different
 scale, only `NUMERIC_SEVERITY_THRESHOLDS` in `mapper.py` needs to change.
 The original numeric value is never discarded — it's preserved separately
 in `source_metadata.pentera_numeric_severity` on every finding, alongside
-the bucketed value used everywhere else in the app.
+the bucketed value used everywhere else in the app. It's also surfaced as
+its own field in the API (`Finding.pentera_numeric_severity`,
+`FindingListItem`/`FindingDetail`) and shown in the UI next to — not
+instead of — the tracker's own `risk_score`, so the source score and the
+tracker's prioritization stay visibly distinct (Findings table: a small
+"Pentera: 7.4" line under the severity badge; Finding detail: separate
+"Pentera Severity (source)" and "Tracker Risk Score" fields).
 
 ### Deduplication and occurrence counts
 
 Achievement objects are **not** assumed to be independent tickets.
-Fingerprinting (see "Fingerprinting / deduplication" below) applies
-identically to achievement-derived findings: `(normalized_type, domain,
-asset_external_identifier)`. Multiple achievement observations that
-normalize to the same fingerprint **within one import** coalesce into a
-single `FindingInstance` — exactly the existing "Intra-assessment
-duplicates" behavior — but now that instance also carries an
-`occurrence_count` (new `FindingInstance.occurrence_count` column,
-default `1`) recording exactly how many source records coalesced into it,
-so the repetition is visible rather than silently collapsed to "1 of
-something." `ImportSummary.duplicate_observations_coalesced` still reports
-the aggregate count across the whole import, same as before.
+Fingerprinting (see "Fingerprinting / deduplication" and "Achievement
+identity" below) applies identically to achievement-derived findings:
+`(normalized_type, canonical_title, domain, asset_external_identifier)` —
+note this now includes the canonicalized title, not just normalized_type;
+see "Achievement identity" for why that matters. Multiple achievement
+observations that normalize to the same fingerprint **within one import**
+coalesce into a single `FindingInstance` — exactly the existing
+"Intra-assessment duplicates" behavior — but now that instance also
+carries an `occurrence_count` (new `FindingInstance.occurrence_count`
+column, default `1`) recording exactly how many source records coalesced
+into it, so the repetition is visible rather than silently collapsed to "1
+of something." `ImportSummary.duplicate_observations_coalesced` still
+reports the aggregate count across the whole import, same as before.
+`occurrence_count` is surfaced in the API/UI too: `FindingListItem`/
+`FindingDetail.occurrence_count` reflects the *latest* assessment's count
+(a "×239" badge next to the finding title/in Assessment History), while
+each individual `FindingInstanceOut.occurrence_count` in Assessment History
+preserves every prior assessment's own count.
 
 ### Future: associating an achievement with its evidence
 
@@ -315,24 +328,31 @@ repetition is collapsed.
 
 ## Normalization mapping (`mapper.py`)
 
-`normalized_type` is chosen by matching the raw title against a keyword table,
-first match wins, e.g.:
+`normalized_type` is chosen by matching a **canonicalized** title (see
+`_canonicalize_title()`: lowercased, `-`/`_` collapsed to spaces, whitespace
+collapsed — so `"Password-Not-Required"` and `"password_not_required"` match
+the same keyword phrases as `"Password Not Required"`) against a keyword
+table, first match wins, e.g.:
 
-| raw title contains | normalized_type | category |
+| canonicalized title contains | normalized_type | category |
 |---|---|---|
 | "password" + "not required" | `PASSWORD_NOT_REQUIRED` | `ACCOUNT_HYGIENE` |
-| "password" + "never expires" | `PASSWORD_NEVER_EXPIRES` | `ACCOUNT_HYGIENE` |
+| "password" + "never expire" | `PASSWORD_NEVER_EXPIRES` | `ACCOUNT_HYGIENE` |
 | "reversible encryption" | `REVERSIBLE_ENCRYPTION` | `CREDENTIAL_EXPOSURE` |
+| "empty password" | `EMPTY_PASSWORD` | `CREDENTIAL_EXPOSURE` |
 | "domain admin" | `DOMAIN_ADMIN_MEMBERSHIP` | `TIER_0` |
-| "privileged group" | `PRIVILEGED_GROUP_MEMBERSHIP` | `PRIVILEGE` |
+| "security account manager" / "samr" | `SAMR_EXPOSURE` | `PRIVILEGE` |
+| "privileged group" / "admin group" | `PRIVILEGED_GROUP_MEMBERSHIP` | `PRIVILEGE` |
 | "dcsync" / "dc sync" | `DCSYNC_EXPOSURE` | `TIER_0` |
-| "password reuse" / "reused password" | `PASSWORD_REUSE` | `CREDENTIAL_EXPOSURE` |
-| "leaked credential" / "breached password" | `LEAKED_CREDENTIAL` | `CREDENTIAL_EXPOSURE` |
-| "weak password" / "cracked password" | `WEAK_PASSWORD` | `CREDENTIAL_EXPOSURE` |
+| "password reuse" / "reused password" / "identical" + "password" | `PASSWORD_REUSE` | `CREDENTIAL_EXPOSURE` |
+| "leaked credential" / "breached password" / "leaked cleartext password" / "leaked username" | `LEAKED_CREDENTIAL` | `CREDENTIAL_EXPOSURE` |
+| "weak password" / "cracked password" / "password can be cracked" / "crackable password" | `WEAK_PASSWORD` | `CREDENTIAL_EXPOSURE` |
+| "password policy" | `PASSWORD_POLICY_WEAKNESS` | `POLICY_CONFIGURATION` |
+| "password" + "complexity" | `PASSWORD_COMPLEXITY_WEAKNESS` | `ACCOUNT_HYGIENE` |
+| "password" + "age" | `PASSWORD_AGE_WEAKNESS` | `POLICY_CONFIGURATION` |
 | "dormant" + "privileged" | `DORMANT_PRIVILEGED_ACCOUNT` | `PRIVILEGE` |
 | "delegation" | `DELEGATION_RISK` | `DELEGATION` |
 | "acl" / "dacl" + "abuse" | `ACL_ABUSE` | `PRIVILEGE` |
-| "password policy" | `PASSWORD_POLICY_WEAKNESS` | `POLICY_CONFIGURATION` |
 | "service account" | `SERVICE_ACCOUNT_RISK` | `PRIVILEGE` |
 | "trust" | `TRUST_RISK` | `TRUST` |
 | *(no match)* | `UNKNOWN` | `OTHER` |
@@ -341,9 +361,18 @@ This table lives as data in `mapper.py` (`TYPE_RULES`) — extending it is a
 one-line addition, not a structural change. `asset_type` is normalized
 similarly from the source's asset-type column, defaulting to `unknown`.
 
+**A shared normalized_type is a classification, not an identity merge.**
+Several distinct Pentera Achievement names deliberately share one
+normalized_type/category above (e.g. "Password can be cracked using low GPU
+effort" and "...using high GPU effort" are both `WEAK_PASSWORD`) — they
+still become separate Findings. See "Achievement identity" below for why
+that's safe and how it's enforced.
+
 Severity is normalized to `low|medium|high|critical` via a small alias map
 (`critical/severe→critical`, `high→high`, `medium/moderate→medium`,
-`low/informational→low`, default `medium`).
+`low/informational→low`, default `medium`) for text severities, and via
+`NUMERIC_SEVERITY_THRESHOLDS` (see "Numeric severity mapping" above) for
+numeric ones.
 
 ## Fingerprinting / deduplication (`services/fingerprint.py`)
 
@@ -362,14 +391,62 @@ fingerprint = sha256(
 - `asset_external_identifier` is the best available stable identifier for the
   asset (SID/SAM account name/DN/hostname — whatever the row provided; falls
   back to the normalized asset name if nothing else is present).
-- `discriminator` is normalized_type-specific to avoid over-merging distinct
-  issues on the same asset (e.g. two different weak-password findings on the
-  same service account should usually still be the same logical issue, but a
-  domain-level `PASSWORD_POLICY_WEAKNESS` finding shouldn't merge with an
-  asset-level one). For MVP the discriminator is simply the normalized_type
-  again (i.e. one Finding per `(normalized_type, domain, asset)` triple) — this
-  is intentionally simple and documented here so it can be revisited if a real
-  export shows it's too coarse or too fine.
+- `discriminator` is `NormalizedFinding.canonical_title` — a canonicalized
+  form of the finding's own source title/name (see `_canonicalize_title()`
+  above). **This changed from an earlier version of this doc/design that
+  defaulted the discriminator to `normalized_type` again** — see
+  "Achievement identity" immediately below for why that was wrong and what
+  broke because of it.
+
+### Achievement identity: why the title is part of the fingerprint
+
+A second real Pentera ADPA import (16k+ `achievements` objects spanning many
+distinct Achievement types) surfaced that the tracker had collapsed
+everything down to **7 logical Findings**, most attached to a generic
+`Unknown Asset`. Root cause: the fingerprint discriminator defaulted to
+`normalized_type`, so identity was effectively just
+`(normalized_type, domain, asset)`. Two things made that collapse
+catastrophic in practice:
+
+1. **Most real Achievement names don't match any `TYPE_RULES` keyword
+   pattern** — they land on `normalized_type = UNKNOWN` (by design; see
+   "Mapping behavior" below — that's correct and intentional). But
+   `UNKNOWN` is itself just one value. Every unrecognized Achievement name,
+   regardless of what it actually says, produced the same `normalized_type`
+   component.
+2. **Most achievements have no specific affected-object parameter** — only
+   `parameters.Domain`, no `Account`/`User`/`Computer`/etc. — so `asset_name`
+   fell back to the domain itself (a deliberate, documented choice; see
+   "Affected Asset" mapping above). Every such achievement, again regardless
+   of its actual name, produced the same `asset` component too.
+
+Combined: `UNKNOWN | domain | domain | UNKNOWN` was the fingerprint for
+*any* unrecognized, domain-scoped Achievement — "Using empty password(s)",
+"Password age permitted is too long", "Security Account Manager Remote
+Protocol exposure", all of them, one fingerprint. Every subsequent
+achievement of that shape was treated as an intra-assessment duplicate of
+the first one seen and silently coalesced away.
+
+**Fix:** the fingerprint discriminator is now `canonical_title` — a
+canonicalized (lowercased, hyphen/underscore-normalized, whitespace-
+collapsed) copy of the finding's own source title/name — instead of
+`normalized_type`. This applies uniformly, not just to `UNKNOWN` findings:
+even two *classified* Achievement names that share a normalized_type (e.g.
+two different `WEAK_PASSWORD` cracking-effort variants) stay separately
+identified, because the category was never meant to be identity — see
+"Normalization mapping" above. Since `title` is always non-empty for any
+row that survives mapping (rows missing both title and asset are skipped
+before this point), `canonical_title` is always a meaningful discriminator.
+
+**Known tradeoff, stated explicitly:** identity now depends on the
+Achievement name staying textually stable between assessment runs. If a
+future Pentera version rephrases an Achievement's `name` for the exact same
+underlying condition, it will import as a **new** Finding rather than a
+recurrence of the old one, until `TYPE_RULES`/fingerprinting is revisited
+with evidence of that happening. This is a deliberate, documented tradeoff
+in exchange for fixing the far worse collapse-to-7 bug — see
+docs/PENTERA_IMPORT.md history / CLAUDE.md checkpoint log for the incident
+this fixed.
 
 On import, `import_service` looks up `Finding.fingerprint`:
 - **match found** → reuse the `Finding`, create a new `FindingInstance` for the
