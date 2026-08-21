@@ -82,11 +82,35 @@ export default function FindingDetail() {
         <div className="space-y-4 lg:col-span-2">
           <Card>
             <h2 className="mb-3 text-sm font-semibold text-slate-200">Risk Explanation</h2>
-            <div className="mb-3 flex items-center gap-3">
-              <span className="text-3xl font-bold text-slate-100">{finding.risk_score}</span>
-              <span className="text-sm text-slate-500">/ 100</span>
-              <PriorityBadge priority={finding.priority} />
+            <p className="mb-3 text-xs text-slate-500">
+              Pentera's own source severity and the Tracker's contextual prioritization are kept separate — never
+              merged into one unexplained number.
+            </p>
+            <div className="mb-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+              <div>
+                <div className="text-xs text-slate-500">Pentera Severity</div>
+                <div className="mt-0.5 font-mono text-xl font-semibold text-slate-100">
+                  {finding.pentera_numeric_severity != null ? finding.pentera_numeric_severity : '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Pentera Severity Rating</div>
+                <div className="mt-1">
+                  <SeverityBadge severity={finding.severity} />
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Tracker Risk Score</div>
+                <div className="mt-0.5 text-xl font-semibold text-slate-100">{finding.risk_score} / 100</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Tracker Priority</div>
+                <div className="mt-1">
+                  <PriorityBadge priority={finding.priority} />
+                </div>
+              </div>
             </div>
+            <div className="mb-1 text-xs font-medium text-slate-500 uppercase">Risk Reasons</div>
             <ul className="space-y-1 text-sm">
               {finding.risk_reasons.map((r, i) => (
                 <li key={i} className="flex items-start gap-2 text-slate-300">
@@ -101,11 +125,6 @@ export default function FindingDetail() {
             <h2 className="mb-3 text-sm font-semibold text-slate-200">Details</h2>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <Info label="Category"><CategoryBadge category={finding.category} /></Info>
-              <Info label="Severity"><SeverityBadge severity={finding.severity} /></Info>
-              {finding.pentera_numeric_severity != null && (
-                <Info label="Pentera Severity (source)" value={String(finding.pentera_numeric_severity)} mono />
-              )}
-              <Info label="Tracker Risk Score" value={`${finding.risk_score} / 100`} mono />
               {finding.occurrence_count > 1 && (
                 <Info
                   label="Occurrence Count"

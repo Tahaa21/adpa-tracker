@@ -1,7 +1,7 @@
 // Mirrors backend/app/schemas/*.py — keep in sync manually (small MVP, no
 // codegen needed yet).
 
-export type Priority = 'P1' | 'P2' | 'P3'
+export type Priority = 'P1' | 'P2' | 'P3' | 'P4'
 
 export type FindingStatus =
   | 'OPEN'
@@ -149,6 +149,14 @@ export interface PriorityDistribution {
   P1: number
   P2: number
   P3: number
+  P4: number
+}
+
+export interface SeverityDistribution {
+  critical: number
+  high: number
+  medium: number
+  low: number
 }
 
 export interface AssessmentDetail {
@@ -195,6 +203,7 @@ export interface Dashboard {
   top_metrics: TopMetrics
   remediation_metrics: RemediationMetrics
   priority_distribution: PriorityDistribution
+  severity_distribution: SeverityDistribution
   category_distribution: Record<string, number>
   comparison?: AssessmentComparison | null
   assessment_count: number

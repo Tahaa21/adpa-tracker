@@ -113,33 +113,114 @@ distinct fingerprint and defeat deduplication entirely. This is why
 achievements get their own dedicated mapping function instead of reusing
 the generic one.
 
-### Numeric severity mapping
+### Numeric severity mapping: Pentera severity bands
 
 An achievement's `severity` is a plain number (e.g. `8.3`), not a
-low/medium/high/critical label. `mapper.py` buckets it deterministically:
+low/medium/high/critical label. `mapper.py` buckets it deterministically
+into what this doc calls the **Pentera severity bands**:
 
 | numeric severity | bucket |
 |---|---|
-| ≥ 9.0 | `critical` |
-| 7.0 – 8.9 | `high` |
-| 4.0 – 6.9 | `medium` |
-| < 4.0 | `low` |
+| ≥ 7.0 | `critical` |
+| 5.0 – 6.9 | `high` |
+| 2.0 – 4.9 | `medium` |
+| < 2.0 | `low` |
+
+No overlapping boundaries — every value in `[0, 10]` maps to exactly one
+band, checked via `>=` against descending thresholds (`_bucket_numeric_severity`
+in `mapper.py`), e.g.: `1.9`→low, `2.0`→medium, `4.9`→medium, `5.0`→high,
+`6.9`→high, `7.0`→critical, `8.6`→critical.
 
 **This is not a claim that Pentera's numeric scale is CVSS.** We have no
-Pentera documentation or code evidence confirming that. These thresholds
-simply reuse the same numeric band boundaries CVSS v3.x happens to use,
-because absent better information they're a well-known, reasonable default
-for a 0–10 scale. If real Pentera documentation establishes a different
-scale, only `NUMERIC_SEVERITY_THRESHOLDS` in `mapper.py` needs to change.
+Pentera documentation or code evidence confirming that. These specific
+boundaries are a deliberate product decision — lower than a typical
+CVSS-style scale would use — reflecting how real Pentera severity values
+map to actual AD security impact in practice (see "Pentera severity to
+Tracker prioritization" below for why this matters: a severity-7.0
+Achievement should read as Critical, not merely High). If real Pentera
+documentation ever establishes a different official scale, only
+`NUMERIC_SEVERITY_THRESHOLDS` in `mapper.py` needs to change — every
+downstream consumer derives from this bucket, not the raw number.
+
 The original numeric value is never discarded — it's preserved separately
 in `source_metadata.pentera_numeric_severity` on every finding, alongside
 the bucketed value used everywhere else in the app. It's also surfaced as
 its own field in the API (`Finding.pentera_numeric_severity`,
 `FindingListItem`/`FindingDetail`) and shown in the UI next to — not
-instead of — the tracker's own `risk_score`, so the source score and the
-tracker's prioritization stay visibly distinct (Findings table: a small
-"Pentera: 7.4" line under the severity badge; Finding detail: separate
-"Pentera Severity (source)" and "Tracker Risk Score" fields).
+instead of — the tracker's own `risk_score`/`priority`, so the source score
+and the tracker's prioritization stay visibly distinct (Findings table: a
+small numeric line above the severity badge; Finding detail: a four-up
+"Pentera Severity / Pentera Severity Rating / Tracker Risk Score / Tracker
+Priority" block, never merged into one unexplained number).
+
+### Pentera severity bands → Tracker prioritization (`services/risk_engine.py`)
+
+Two separate, deliberately un-merged outputs, both derived from the Pentera
+severity band above:
+
+**`risk_score` (0-100).** Seeded from a baseline range tied to the band,
+then pushed upward by additive contextual modifiers (capped at 100):
+
+| Pentera severity band | risk_score baseline (floor–ceiling) |
+|---|---|
+| `critical` | 80–100 |
+| `high` | 60–79 |
+| `medium` | 30–59 |
+| `low` | 10–29 |
+
+A finding's `risk_score` always *starts* at the floor of its band — this is
+what rules out a bizarre outcome like a Pentera severity `8.6` (`critical`
+band) producing a `risk_score` of `35`; the floor alone guarantees ≥ 80.
+
+Contextual modifiers (each adds points and its own line to `risk_reasons`
+when present): Tier 0 / Domain Controller relevance (+8), privileged access
+impact (+4), leaked/cleartext credential exposure (+6), confirmed
+exploitable condition (+6), highly critical affected asset (+4).
+
+**`priority` (P1–P4).** A *discrete* decision, computed in two steps:
+
+1. **Base priority** comes from the severity band alone, before any
+   contextual modifier — `critical`→P1, `high`→P2, `medium`→P3, `low`→P4.
+2. **Contextual promotion** (monotonic toward P1 only — nothing here can
+   ever move a finding to a lower priority):
+   - **Tier 0 / Domain Controller relevance** (DCSync, Domain Admin /
+     Enterprise Admin exposure — anything with `tier_zero=True` via
+     `mapper.py`'s `TYPE_FLAGS`) is an **unconditional override straight to
+     P1**, regardless of the base priority. These conditions are inherently
+     top-priority for AD security no matter how Pentera itself scored that
+     one specific achievement — e.g. a Domain Admin Membership finding
+     Pentera rated only medium-severity is still P1 for us.
+   - **Any other single contextual factor** (privileged group membership,
+     leaked/cleartext credential exposure, a confirmed exploitable
+     condition, or a highly critical affected asset) promotes priority by
+     **exactly one level** (P4→P3→P2→P1), applied **at most once** even if
+     several such factors are present together. This is deliberate: it
+     keeps P1 meaningful ("do not over-promote everything to P1") while the
+     cumulative effect of stacking several real risk factors still shows up
+     — in `risk_score`, which *does* add points per factor.
+3. A `critical`-band finding starts at P1 already; nothing can lower it.
+
+Example (matches a real-shaped scenario): Pentera severity `6.0` → `high`
+band → base P2. If the achievement is Tier 0/DCSync-relevant → promoted to
+P1. If instead only "privileged group membership" applies (no Tier 0) →
+promoted one level, P2 stays P2 only if it was already the base — from a
+`medium` (P3) base, a single non-tier-zero factor lands at P2, not P1.
+
+**Worked example demonstrating the actual real-data requirement**: a DCSync
+achievement and an ordinary password-policy achievement both scored `6.0`
+by Pentera (same `high` band, same base P2) — DCSync's Tier 0 relevance
+promotes it to **P1**, while the password-policy finding, with no
+qualifying context, stays at **P2**. Swap in a lower Pentera severity for
+the DCSync achievement (say `5.5`, still `high`) and it *still* lands P1 —
+proving ranking is driven by the general context-aware model, not by the
+raw severity number or by hardcoding either finding's name. See
+`backend/tests/test_scoring_prioritization.py` for this exact scenario
+executed end-to-end (synthetic data).
+
+Every contributing factor — the base severity, each triggered modifier, and
+any resulting priority promotion — is written to `risk_reasons` as a
+human-readable line, so a P1 rating is always traceable to specific,
+named reasons, never an opaque number.
 
 ### Deduplication and occurrence counts
 

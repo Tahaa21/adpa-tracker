@@ -11,6 +11,7 @@ from app.schemas.dashboard import (
     DashboardOut,
     PriorityDistribution,
     RemediationMetrics,
+    SeverityDistribution,
     TopMetrics,
 )
 
@@ -64,6 +65,12 @@ def get_dashboard(db: Session = Depends(get_db)):
         if hasattr(priority_dist, f.priority):
             setattr(priority_dist, f.priority, getattr(priority_dist, f.priority) + 1)
 
+    severity_dist = SeverityDistribution()
+    for f in present_findings:
+        severity = (f.severity or "").lower()
+        if hasattr(severity_dist, severity):
+            setattr(severity_dist, severity, getattr(severity_dist, severity) + 1)
+
     category_distribution: dict[str, int] = {}
     for f in present_findings:
         category_distribution[f.category] = category_distribution.get(f.category, 0) + 1
@@ -100,6 +107,7 @@ def get_dashboard(db: Session = Depends(get_db)):
         top_metrics=top_metrics,
         remediation_metrics=remediation_metrics,
         priority_distribution=priority_dist,
+        severity_distribution=severity_dist,
         category_distribution=category_distribution,
         comparison=comparison,
         assessment_count=assessment_count,

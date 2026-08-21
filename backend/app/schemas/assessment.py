@@ -41,6 +41,7 @@ class PriorityDistribution(BaseModel):
     P1: int = 0
     P2: int = 0
     P3: int = 0
+    P4: int = 0
 
 
 class AssessmentDetailOut(BaseModel):

@@ -20,6 +20,19 @@ class PriorityDistribution(BaseModel):
     P1: int = 0
     P2: int = 0
     P3: int = 0
+    P4: int = 0
+
+
+class SeverityDistribution(BaseModel):
+    """Pentera severity band distribution — kept separate from
+    PriorityDistribution so the dashboard can show whether risk is coming
+    from Pentera's own severity rating or from the Tracker's contextual
+    prioritization (see docs/PENTERA_IMPORT.md "Pentera severity bands")."""
+
+    critical: int = 0
+    high: int = 0
+    medium: int = 0
+    low: int = 0
 
 
 class AssessmentComparison(BaseModel):
@@ -39,6 +52,7 @@ class DashboardOut(BaseModel):
     top_metrics: TopMetrics
     remediation_metrics: RemediationMetrics
     priority_distribution: PriorityDistribution
+    severity_distribution: SeverityDistribution
     category_distribution: dict[str, int]
     comparison: AssessmentComparison | None = None
     assessment_count: int = 0

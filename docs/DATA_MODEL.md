@@ -72,10 +72,10 @@ The persistent logical issue.
 | title | normalized, human-readable title |
 | category | e.g. `TIER_0`, `IDENTITY_EXPOSURE` |
 | asset_id | FK → Asset |
-| severity | normalized `low \| medium \| high \| critical`, derived from source severity |
-| risk_score | 0-100, from the risk engine |
-| priority | `P1 \| P2 \| P3`, from risk score bands |
-| risk_reasons | JSON list of strings explaining the score (the risk engine's output) |
+| severity | Pentera severity band, `low \| medium \| high \| critical` — see [PENTERA_IMPORT.md](PENTERA_IMPORT.md) "Pentera severity bands"; source-of-truth for numeric Pentera findings, NOT re-derived by the risk engine |
+| risk_score | 0-100, Tracker's own score from `risk_engine.py` — seeded from `severity`'s baseline band, then adjusted by context; kept visually distinct from `severity`/`pentera_numeric_severity`, never merged |
+| priority | `P1 \| P2 \| P3 \| P4` — base priority from `severity` band (CRITICAL→P1 … LOW→P4), then promoted (never demoted) by contextual factors — see `risk_engine.py` |
+| risk_reasons | JSON list of strings explaining both the score AND any priority promotion (the risk engine's output) |
 | status | see workflow below |
 | owner_id | FK → Owner, nullable |
 | first_seen | earliest Assessment date this fingerprint was observed |

@@ -202,10 +202,122 @@ shape should stay ready for these, but only `pentera/` is implemented.
 
 ## Current implementation status
 
-_Last updated: 2026-08-21 (tenth checkpoint — achievement identity /
-fingerprint collision fix)._
+_Last updated: 2026-08-21 (eleventh checkpoint — Pentera severity bands +
+P1-P4 contextual prioritization)._
 
-**New this checkpoint**: the second real local Pentera ADPA JSON import
+**New this checkpoint**: the third real Pentera import produced roughly the
+correct number of logical findings (~27, achievement-identity fix from the
+tenth checkpoint confirmed working), surfacing the next problem —
+prioritization didn't reflect Pentera's real severity scale, and the old
+3-tier P1/P2/P3 model (base severity score 10/20/35/50 + flat additive
+modifiers, thresholded at 70/90) could produce exactly the "bizarre
+outcome" the task called out: a high Pentera severity finding landing at a
+low Tracker priority. Fixed with an explicit severity-band → base-priority
+→ contextual-promotion model, expanded to 4 priority tiers.
+
+- [x] **Pentera severity bands redefined** in `mapper.py`
+      (`NUMERIC_SEVERITY_THRESHOLDS`): `>=7.0`→critical, `5.0-6.9`→high,
+      `2.0-4.9`→medium, `<2.0`→low — replacing the old CVSS-shaped
+      `9.0/7.0/4.0` thresholds with new, lower, explicitly-Pentera-specific
+      (still NOT a CVSS claim) boundaries per direct instruction. No
+      overlapping boundaries; verified with a 0.0–10.0 sweep at 0.1
+      granularity in `test_risk_engine.py`.
+- [x] **`services/risk_engine.py` rewritten**: `risk_score` now seeds from
+      a baseline floor tied to the severity band (`low` 10 / `medium` 30 /
+      `high` 60 / `critical` 80 — the "suggested baseline ranges") instead
+      of a flat base-severity point value, then adds smaller contextual
+      modifiers (Tier 0 +8, privileged +4, credential exposure +6,
+      exploitable +6, critical asset +4) upward from there — capped at
+      100. This alone rules out the "severity 8.6 → risk 35" anti-pattern
+      by construction (critical always starts ≥ 80).
+      `priority` (now **P1/P2/P3/P4**, up from P1/P2/P3) is computed
+      separately and discretely: base priority from severity band alone
+      (`critical`→P1 … `low`→P4), then Tier 0/DCSync/Domain Admin
+      relevance (`tier_zero=True`) is an **unconditional override to P1**
+      regardless of base, while any other single contextual factor
+      (privileged/credential-exposure/exploitable/critical-asset) promotes
+      by **exactly one level, applied at most once** even with several
+      factors present — deliberately avoiding "over-promote everything to
+      P1." Promotion is monotonic toward P1 only; nothing demotes.
+      `mapper.py`'s `TYPE_FLAGS` gained `EMPTY_PASSWORD` →
+      credential_exposure=True (a real gap from the tenth checkpoint's new
+      type — empty password is clearly a credential exposure condition).
+- [x] **Explainability**: `Finding` gained no new DB columns (uses existing
+      `pentera_numeric_severity`/`occurrence_count` properties from the
+      tenth checkpoint) but the UI now shows Pentera Severity, Pentera
+      Severity Rating, Tracker Risk Score, and Tracker Priority as four
+      clearly separate fields (Finding detail's Risk Explanation card),
+      never merged into one number — plus every contributing factor and
+      any priority promotion as its own `risk_reasons` line.
+- [x] **Dashboard**: `PriorityDistribution` (both `schemas/dashboard.py`
+      and `schemas/assessment.py`) gained `P4`; new `SeverityDistribution`
+      schema/field (critical/high/medium/low) added to `DashboardOut` so
+      the dashboard can show Pentera severity distribution alongside —
+      not instead of — Tracker priority distribution, making it visually
+      obvious which one risk is coming from. Frontend: Overview.tsx now
+      renders two side-by-side donut charts ("Tracker Priority
+      Distribution" and "Pentera Severity Distribution") with explanatory
+      subtitles; `PriorityBadge` gained a P4 style.
+- [x] **Findings table redesigned**: columns are now Priority / Tracker
+      Risk / Finding (title + asset/domain subtext) / Pentera Severity
+      (numeric + rating badge) / Category / Occurrences / Owner / Status —
+      dropped separate Affected Asset / Severity / First Seen / Last Seen
+      columns (moved to Finding Detail, per "if space is tight, keep the
+      most important fields visible and move secondary data to detail
+      view") to fit the new Pentera Severity column without an
+      unreasonably wide table.
+- [x] Tests: `test_risk_engine.py` fully rewritten (27 tests) — every
+      requested boundary case (1.0/1.9/2.0/4.9/5.0/6.9/7.0/8.6 →
+      band/base-priority), the exact contextual-promotion examples given
+      (6.0+Tier0→P1, 5.5+DCSync→P1, 4.0+privileged→P2 per the documented
+      one-level rule, 8.6-without-modifiers stays P1), a full 0.0-10.0
+      boundary sweep with no gaps, and an explicit "all four priorities
+      reachable" test proving the model doesn't collapse toward P1. New
+      `test_scoring_prioritization.py` (5 tests) proves the real-data
+      requirement end-to-end through the full import pipeline: a
+      DCSync-type achievement outranks a same-severity password-policy
+      achievement (P1 vs P2), Domain Admin Membership at a *lower* raw
+      severity than Reversible Encryption still reaches the same P1 (Tier
+      0 override beats raw severity), ordinary findings without context
+      stay at lower priorities (not everything is P1), and dashboard/API
+      responses expose the new P4/severity_distribution fields correctly.
+      Three pre-existing `test_pentera_achievements.py` assertions updated
+      for the new bands (8.3→critical not high, 6.2→high not medium, a
+      boundary-sweep case corrected). **149 total backend tests pass**
+      (144 pre-existing + 5 net new — `test_risk_engine.py` was rewritten
+      in place, not just appended to). Frontend build+lint clean.
+- [x] Live-verified end-to-end via `./start.sh` with a synthetic dataset
+      shaped exactly like the real-data problem described (DCSync, Domain
+      Admin Membership, Reversible Encryption, Privileged Group
+      Membership, Leaked Credential, Password Policy Weakness at varying
+      Pentera severities): confirmed via direct DB query AND the real
+      browser UI that DCSync (severity 8.6) ranked risk=100/P1 at the top,
+      Domain Admin Membership (severity 5.5, `high` band) was correctly
+      promoted P2→P1 by Tier 0 override despite a lower raw severity than
+      Reversible Encryption (severity 6.9), and the ordinary Password
+      Policy Weakness finding (severity 1.9, `low` band, no qualifying
+      context) landed at P4 — demonstrating real separation across the
+      priority range, not collapse toward P1. `/dashboard` API and the
+      Overview page both correctly showed `priority_distribution` (P1:3
+      P2:2 P3:0 P4:1) alongside `severity_distribution`
+      (critical:1 high:2 medium:2 low:1) as two distinct donut charts.
+      Finding detail page confirmed showing "Pentera Severity: 8.6",
+      "Pentera Severity Rating: Critical", "Tracker Risk Score: 100/100",
+      "Tracker Priority: P1", and every risk reason listed individually —
+      matching the requested explainability format exactly.
+- [x] Docs updated: `docs/PENTERA_IMPORT.md`'s "Numeric severity mapping"
+      section renamed/expanded to "Pentera severity bands" with the new
+      thresholds, plus a new "Pentera severity bands → Tracker
+      prioritization" section documenting the full base-priority +
+      promotion model and the DCSync-vs-password-policy worked example;
+      `docs/DATA_MODEL.md`'s Finding field table updated for P4 and the
+      severity/risk_score/priority relationship; `docs/MVP_SCOPE.md` and
+      `README.md` P1/P2/P3 mentions updated to P1/P2/P3/P4; this file.
+
+_Prior checkpoint (tenth) — achievement identity / fingerprint collision
+fix:_
+
+**New that checkpoint**: the second real local Pentera ADPA JSON import
 (operational since the ninth checkpoint below) surfaced that the tracker
 collapsed 16k+ achievement objects — spanning many distinct real Pentera
 Achievement types (e.g. "Using empty password(s)", "Password can be
@@ -716,25 +828,27 @@ python3 scripts/load_sample_data.py http://localhost:8000
 brings it up fully working (backend on :8000, frontend on :5173, sample
 data loadable in one command). Three open items remain, none blocking:
 
-1. **Run a THIRD real Pentera ADPA JSON import** against a fresh local DB
-   (the DB from the incorrect-collapsing logic was deleted this checkpoint,
-   not migrated/repaired) to confirm the achievement-identity fix actually
-   fixes the real-world collapse-to-7 problem. Watch specifically for:
-   `remediation_findings_created` roughly matching the number of distinct
-   Achievement types visible in the real Pentera UI (not collapsing to a
-   small number again), `occurrence_count` on each Finding roughly matching
-   the real UI's per-type occurrence count, no `Unknown Asset` findings
-   where a real Pentera UI screenshot shows a specific affected object,
-   `unknown_mappings` still nonzero is fine (unknown findings stay
-   distinct and useful — that's the point) but should mostly resolve to
-   *sensible, distinct* titles rather than one dominant catch-all. If a
-   real Achievement `parameters` key beyond what
-   `ACHIEVEMENT_SCOPE_PARAMETER_KEYS` covers turns out to matter for asset
-   scope, or a visible Achievement name doesn't classify the way you'd
-   expect, both are targeted one-line fixes in `json_parser.py`/
-   `mapper.py` — not a redesign. Do not request or inspect the real file
-   itself; work only from aggregate counts/warnings/UI screenshots and
-   further sanitized samples, same discipline as every checkpoint so far.
+1. **Run a FOURTH real Pentera ADPA JSON import** against a fresh local DB
+   to confirm the new severity-band/prioritization model (this checkpoint)
+   produces sane, sensible P1-P4 separation on real data. Watch
+   specifically for: DCSync/Domain Admin Membership/other Tier-0-relevant
+   findings landing at P1 regardless of their individual Pentera severity
+   number; ordinary policy-configuration findings (password age/complexity/
+   policy) spreading across P2-P4 rather than clustering at P1; the
+   priority_distribution not collapsing to "everything is P1" or
+   "everything is P3" — real separation across all four tiers; and the
+   Finding detail page's four-up Pentera Severity / Rating / Tracker Risk
+   Score / Priority block reading sensibly for a few spot-checked findings
+   (e.g. does an achievement you'd intuitively call "critical" actually
+   land at critical/P1?). If a specific real Achievement type's
+   priority/severity looks wrong, the fix is almost always a targeted one
+   — either `TYPE_FLAGS` in `mapper.py` (tier_zero/privileged/
+   credential_exposure for that normalized_type) or, if the bands
+   themselves seem off against real Pentera behavior, revisit
+   `NUMERIC_SEVERITY_THRESHOLDS` — not a redesign of `risk_engine.py`. Do
+   not request or inspect the real file itself; work only from aggregate
+   counts/screenshots and further sanitized samples, same discipline as
+   every checkpoint so far.
 2. **Verify `start.ps1`/`stop.ps1` on an actual Windows machine.** Written
    to mirror `start.sh` exactly, syntax-reviewed carefully, but never
    executed — no Windows/pwsh available in this dev environment. Run it,

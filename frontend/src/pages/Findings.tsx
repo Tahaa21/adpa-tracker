@@ -5,7 +5,7 @@ import type { FindingListItem, Owner } from '../api/types'
 import { CategoryBadge, PriorityBadge, SeverityBadge, StatusBadge } from '../components/Badges'
 import { Card, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/Card'
 import { ALL_STATUSES } from '../api/types'
-import { formatDate, titleCase } from '../utils/format'
+import { titleCase } from '../utils/format'
 
 const CATEGORIES = [
   'TIER_0',
@@ -72,6 +72,7 @@ export default function Findings() {
             <option value="P1">P1</option>
             <option value="P2">P2</option>
             <option value="P3">P3</option>
+            <option value="P4">P4</option>
           </select>
           <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All Statuses</option>
@@ -115,19 +116,17 @@ export default function Findings() {
 
       {findings && findings.length > 0 && (
         <Card className="overflow-x-auto p-0">
-          <table className="w-full min-w-[1100px] text-left text-sm">
+          <table className="w-full min-w-[1150px] text-left text-sm">
             <thead className="border-b border-slate-800 text-xs text-slate-500 uppercase">
               <tr>
                 <th className="px-4 py-3 font-medium">Priority</th>
-                <th className="px-4 py-3 font-medium">Risk</th>
+                <th className="px-4 py-3 font-medium">Tracker Risk</th>
                 <th className="px-4 py-3 font-medium">Finding</th>
+                <th className="px-4 py-3 font-medium">Pentera Severity</th>
                 <th className="px-4 py-3 font-medium">Category</th>
-                <th className="px-4 py-3 font-medium">Affected Asset</th>
-                <th className="px-4 py-3 font-medium">Severity</th>
+                <th className="px-4 py-3 font-medium">Occurrences</th>
                 <th className="px-4 py-3 font-medium">Owner</th>
                 <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">First Seen</th>
-                <th className="px-4 py-3 font-medium">Last Seen</th>
               </tr>
             </thead>
             <tbody>
@@ -146,28 +145,22 @@ export default function Findings() {
                     <Link to={`/findings/${f.id}`} className="font-medium text-sky-400 hover:underline">
                       {f.title}
                     </Link>
-                    {f.occurrence_count > 1 && (
-                      <span
-                        className="ml-2 rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-400"
-                        title={`${f.occurrence_count} occurrences coalesced into this finding`}
-                      >
-                        ×{f.occurrence_count.toLocaleString()}
-                      </span>
-                    )}
+                    <div className="text-[11px] text-slate-500">
+                      {f.asset.name} · {f.asset.domain}
+                    </div>
                     {!f.currently_present && <div className="text-[11px] text-slate-500">No longer observed</div>}
+                  </td>
+                  <td className="px-4 py-3">
+                    {f.pentera_numeric_severity != null && (
+                      <div className="font-mono text-slate-300">{f.pentera_numeric_severity}</div>
+                    )}
+                    <SeverityBadge severity={f.severity} />
                   </td>
                   <td className="px-4 py-3">
                     <CategoryBadge category={f.category} />
                   </td>
                   <td className="px-4 py-3 text-slate-300">
-                    {f.asset.name}
-                    <div className="text-[11px] text-slate-500">{f.asset.domain}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <SeverityBadge severity={f.severity} />
-                    {f.pentera_numeric_severity != null && (
-                      <div className="text-[11px] text-slate-500">Pentera: {f.pentera_numeric_severity}</div>
-                    )}
+                    {f.occurrence_count > 1 ? f.occurrence_count.toLocaleString() : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="px-4 py-3 text-slate-300">
                     {f.owner ? ownerMap.get(f.owner.id)?.name ?? f.owner.name : <span className="text-slate-600">Unassigned</span>}
@@ -175,8 +168,6 @@ export default function Findings() {
                   <td className="px-4 py-3">
                     <StatusBadge status={f.status} />
                   </td>
-                  <td className="px-4 py-3 text-slate-500">{formatDate(f.first_seen)}</td>
-                  <td className="px-4 py-3 text-slate-500">{formatDate(f.last_seen)}</td>
                 </tr>
               ))}
             </tbody>

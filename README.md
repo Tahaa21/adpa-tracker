@@ -8,7 +8,7 @@ Security Assessment → Risk Prioritization → Remediation → Validation → R
 ```
 
 It ingests Pentera Active Directory assessment findings, normalizes them into
-an internal data model, scores and prioritizes them (P1/P2/P3), and tracks
+an internal data model, scores and prioritizes them (P1/P2/P3/P4), and tracks
 them through an owner/status remediation workflow and a manual validation
 workflow — so you can answer: *what should we fix first, who owns it, has it
 been fixed, and can we show risk was reduced?*

@@ -18,7 +18,7 @@ replace BloodHound.
 - Normalization of raw Pentera findings into internal categories/types.
 - Deterministic fingerprinting so the same logical issue is recognized across
   repeated assessments (trend analysis).
-- Explainable risk scoring (0-100) and P1/P2/P3 priority banding.
+- Explainable risk scoring (0-100) and P1/P2/P3/P4 priority banding.
 - Findings table with search + filters (priority, status, category, severity, owner).
 - Finding detail view: risk explanation, assessment history, remediation notes,
   validation records.
@@ -52,7 +52,7 @@ The MVP is complete when this flow works, live, against the running app:
 
 1. Open dashboard.
 2. Upload a Pentera CSV assessment.
-3. See normalized findings with P1/P2/P3 priorities.
+3. See normalized findings with P1/P2/P3/P4 priorities.
 4. Open a P1 finding, assign an owner/team, move to `IN_REMEDIATION`, add a note.
 5. Move to `READY_FOR_VALIDATION`, add validation evidence/result, mark `VALIDATED`.
 6. Import a second Pentera assessment.

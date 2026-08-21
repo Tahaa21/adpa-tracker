@@ -105,15 +105,16 @@ def test_numeric_severity_preserved_and_bucketed():
 
     result = map_rows(rows)
     nf = result.findings[0]
-    # 8.3 falls in the 7.0-8.9 band -> "high" (see mapper.py
-    # NUMERIC_SEVERITY_THRESHOLDS; explicitly NOT a CVSS claim).
-    assert nf.severity == "high"
+    # 8.3 falls in the >=7.0 band -> "critical" (see mapper.py
+    # NUMERIC_SEVERITY_THRESHOLDS -- the exact Pentera severity bands;
+    # explicitly NOT a CVSS claim).
+    assert nf.severity == "critical"
     # Original numeric value is never discarded.
     assert nf.source_metadata["pentera_numeric_severity"] == 8.3
 
 
 def test_numeric_severity_bucket_boundaries():
-    cases = [(9.2, "critical"), (7.0, "high"), (4.5, "medium"), (1.0, "low")]
+    cases = [(9.2, "critical"), (7.0, "critical"), (5.0, "high"), (2.0, "medium"), (1.0, "low")]
     for value, expected_bucket in cases:
         data = {"achievements": [_achievement("Some Achievement", value)]}
         rows, _, _ = parse_json(_bytes(data))
@@ -193,7 +194,7 @@ def test_unknown_achievement_name_remains_useful_finding():
     assert nf.category == "OTHER"
     # Title and severity are NOT destroyed by being unrecognized.
     assert nf.title == "Some Brand New Pentera Achievement Nobody Has Seen"
-    assert nf.severity == "medium"  # 6.2 buckets to medium (4.0-6.9)
+    assert nf.severity == "high"  # 6.2 buckets to high (5.0-6.9)
     assert nf.source_metadata["pentera_numeric_severity"] == 6.2
 
 

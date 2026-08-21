@@ -17,7 +17,8 @@ import type { Dashboard } from '../api/types'
 import { Card, EmptyState, ErrorState, LoadingState, PageHeader, StatCard } from '../components/Card'
 import { titleCase } from '../utils/format'
 
-const PRIORITY_COLORS: Record<string, string> = { P1: '#f87171', P2: '#fbbf24', P3: '#38bdf8' }
+const PRIORITY_COLORS: Record<string, string> = { P1: '#f87171', P2: '#fbbf24', P3: '#38bdf8', P4: '#64748b' }
+const SEVERITY_COLORS: Record<string, string> = { critical: '#f87171', high: '#fb923c', medium: '#fbbf24', low: '#64748b' }
 const CATEGORY_COLOR = '#38bdf8'
 
 export default function Overview() {
@@ -37,12 +38,25 @@ export default function Overview() {
   if (error) return <ErrorState message={error} />
   if (!dashboard) return null
 
-  const { top_metrics, remediation_metrics, priority_distribution, category_distribution, comparison, assessment_count } =
-    dashboard
+  const {
+    top_metrics,
+    remediation_metrics,
+    priority_distribution,
+    severity_distribution,
+    category_distribution,
+    comparison,
+    assessment_count,
+  } = dashboard
 
-  const priorityData = (['P1', 'P2', 'P3'] as const).map((p) => ({
+  const priorityData = (['P1', 'P2', 'P3', 'P4'] as const).map((p) => ({
     name: p,
     value: priority_distribution[p],
+  }))
+
+  const severityData = (['critical', 'high', 'medium', 'low'] as const).map((s) => ({
+    name: titleCase(s),
+    key: s,
+    value: severity_distribution[s],
   }))
 
   const categoryData = Object.entries(category_distribution)
@@ -94,7 +108,11 @@ export default function Overview() {
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card>
-              <h2 className="mb-4 text-sm font-semibold text-slate-200">Risk Distribution (Priority)</h2>
+              <h2 className="mb-1 text-sm font-semibold text-slate-200">Tracker Priority Distribution</h2>
+              <p className="mb-3 text-xs text-slate-500">
+                Our remediation prioritization (Pentera severity + context — Tier 0, privileged access, credential
+                exposure, exploitability, asset criticality).
+              </p>
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
                   <Pie data={priorityData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
@@ -120,6 +138,38 @@ export default function Overview() {
               </div>
             </Card>
 
+            <Card>
+              <h2 className="mb-1 text-sm font-semibold text-slate-200">Pentera Severity Distribution</h2>
+              <p className="mb-3 text-xs text-slate-500">
+                Raw source severity rating, before any Tracker context is applied.
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={severityData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
+                    {severityData.map((entry) => (
+                      <Cell key={entry.key} fill={SEVERITY_COLORS[entry.key]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: '#101a2e', border: '1px solid #1e293b', borderRadius: 8 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="mt-2 flex justify-center gap-4 text-xs">
+                {severityData.map((entry) => (
+                  <div key={entry.key} className="flex items-center gap-1.5">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: SEVERITY_COLORS[entry.key] }}
+                    />
+                    <span className="text-slate-400">
+                      {entry.name}: {entry.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4">
             <Card>
               <h2 className="mb-4 text-sm font-semibold text-slate-200">Category Distribution</h2>
               <ResponsiveContainer width="100%" height={260}>

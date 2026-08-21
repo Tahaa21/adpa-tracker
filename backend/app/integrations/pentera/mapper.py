@@ -77,22 +77,28 @@ SEVERITY_ALIASES = {
 }
 
 # Deterministic mapping from a NUMERIC Pentera severity (e.g. an achievement's
-# `severity: 8.3`) to our internal low/medium/high/critical bucket.
+# `severity: 8.3`) to our internal low/medium/high/critical bucket -- the
+# "Pentera severity bands."
 #
 # This is NOT a claim that Pentera's numeric scale is CVSS — we have no
-# Pentera documentation or code evidence confirming that, and the task that
-# introduced this deliberately said not to assume it. These thresholds
-# simply reuse the same numeric band boundaries CVSS v3.x happens to use
-# (0.1-3.9 Low / 4.0-6.9 Medium / 7.0-8.9 High / 9.0-10.0 Critical) because,
-# absent better information, they're a well-known, reasonable default for a
-# 0-10 severity scale. If Pentera's real scale/documentation turns out to
-# differ, adjust NUMERIC_SEVERITY_THRESHOLDS — nothing else needs to change.
-# The original numeric value is never discarded: see
-# NormalizedFinding.source_metadata["pentera_numeric_severity"] below.
+# Pentera documentation or code evidence confirming that. These specific
+# boundaries (>= 7.0 Critical / 5.0-6.9 High / 2.0-4.9 Medium / < 2.0 Low)
+# are an explicit, deliberate product decision — lower thresholds than a
+# typical CVSS-style scale would use — based on how real Pentera severity
+# values observed in practice map to actual AD security impact (e.g. a 7.0
+# achievement should be treated as Critical for prioritization purposes,
+# not merely High). If Pentera documentation ever establishes a different
+# official scale, only NUMERIC_SEVERITY_THRESHOLDS needs to change — every
+# downstream consumer (severity badges, risk_engine.py's baseline score
+# ranges/priority mapping, filters) derives from this bucket, not the raw
+# number. The original numeric value is never discarded: see
+# NormalizedFinding.source_metadata["pentera_numeric_severity"] below, and
+# services/risk_engine.py for how the bucket feeds Tracker Risk
+# Score/Priority while staying visually distinct from it.
 NUMERIC_SEVERITY_THRESHOLDS: list[tuple[float, str]] = [
-    (9.0, "critical"),
-    (7.0, "high"),
-    (4.0, "medium"),
+    (7.0, "critical"),
+    (5.0, "high"),
+    (2.0, "medium"),
     (0.0, "low"),
 ]
 
@@ -124,6 +130,7 @@ TYPE_FLAGS: dict[str, tuple[bool, bool, bool]] = {
     "WEAK_PASSWORD": (False, False, True),
     "REVERSIBLE_ENCRYPTION": (False, False, True),
     "PASSWORD_NOT_REQUIRED": (False, False, True),
+    "EMPTY_PASSWORD": (False, False, True),
     "ACL_ABUSE": (True, False, False),
     "SERVICE_ACCOUNT_RISK": (False, False, False),
     "DELEGATION_RISK": (True, False, False),
